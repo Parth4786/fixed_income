@@ -1,0 +1,46 @@
+name: nightly data check
+
+# Runs the whole pipeline on a short window of real public files every
+# weekday. Its job is to notice within a day when a source changes its file
+# format or moves a URL. Data is not committed; the report is kept as an
+# artifact of the run.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1-5" # 06:00 UTC, after the previous US day's files are published
+  workflow_dispatch:
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: Fetch the last ten days
+        run: |
+          START=$(date -u -d "10 days ago" +%F)
+          END=$(date -u -d "1 day ago" +%F)
+          python -m tapemark fetch --start "$START" --end "$END" --workers 4
+      - name: Build clean tables
+        run: python -m tapemark build
+      - name: Data quality report
+        run: python -m tapemark report
+      - name: Fail if nothing usable came through
+        run: |
+          python - <<'EOF'
+          import pandas as pd
+          swaps = pd.read_parquet("data/clean/usd_sofr_swaps.parquet")
+          clean = int(swaps["standard"].sum())
+          print(f"clean swaps in window: {clean:,}")
+          assert clean > 500, "too few clean swaps: a source or its format has probably changed"
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: data-quality-report
+          path: data/reports/data_quality.md
+          retention-days: 30
