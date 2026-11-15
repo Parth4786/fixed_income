@@ -84,20 +84,20 @@ The interactive API reference is at <http://127.0.0.1:8765/docs>.
 
 | Screen | What a trader or analyst gets from it |
 |---|---|
-| Overview | What the product is, its three headline results, and four pricing methods ranked by real trades |
-| Guide and glossary | How to read the screens; every term in plain words (also shown on hover) |
-| Today | Three written sentences on the day, then where rates closed, what moved, where risk traded, trades furthest from fair, the overnight rate priced after each Fed meeting |
+| Today (opens first) | Curve monitor: every swap length and the 2s10s, 5s30s and 2s5s10s spreads with level, 1-day, 1-week and 1-month change, place in the past year's range, 60-day trend, 3-month roll-down and forward. Then the day in three lines, what moved, where rates closed, the rate priced after each Fed meeting, where risk traded and trades furthest from fair |
 | Trades | Every clean trade with the fair rate just before it, the gap in basis points and dollars, a flag when unusual; the live feed |
 | Volatility | Volatility grid from real premiums, recent option trades, history |
 | Other markets | Swap curves in other currencies, expected inflation, inflation swaps against TIPS breakevens, swap rates against Treasuries, funding rate and pressure gauge |
 | Patterns | Rich/cheap screen, implied against realised volatility, cross-market correlations, time-of-day effects, what drives the gap to fair, trade clustering around data releases, signed flow, late-day drift |
-| Price a trade | A swap or swap option priced under every model at once, with each model's proven accuracy; verdict, dollar cost, risk, hedge, scenarios; margin and its funding cost as a swap against swap futures |
+| Price a trade | A ticket that reprices as you type, and a quote: fair rate or premium, the range recent trades landed in, your price against it in bp and dollars. Below: risk by curve point and hedge, scenarios, every model with its proven accuracy, margin and its funding cost against swap futures; for options, the Bermudan price, exercise boundary and value of waiting |
 | Model lab | Change the curve model's settings and rerun it on recent real trades, against the published settings and the baseline |
 | Saved trades | Trades you saved, repriced on the latest day |
 | Book risk | Basel/EBA rate shocks, outlier test, VaR, expected shortfall and backtest for your saved swaps, and for the Fed's real Treasury portfolio |
 | Daily brief | One page of the latest numbers, saved as PDF with the browser's print dialog |
-| Accuracy | Out-of-sample accuracy against baselines, band honesty, sensitivity to settings, worst days, hedge test, the futures engine against the exchange, the margin rule against published margins |
+| Accuracy | Out-of-sample accuracy against baselines, band honesty, sensitivity to settings, worst days, hedge test, the futures engine against the exchange, the margin rule against published margins, the Bermudan engines against the exact price and their sensitivity to mean reversion |
 | Data quality | Why each trade was excluded, month-by-month consistency, quiet days with notes |
+| What this is (About) | The product in one page, its headline results, and four pricing methods ranked by real trades |
+| Guide and glossary (About) | How to read the screens; every term in plain words (also on hover, and behind each card's ⓘ button) |
 
 ## 5. Saving, changing and deleting (CRUD)
 
@@ -207,7 +207,7 @@ come through.
 
 **C++ kernel (optional).** `python tools/build_cpp.py` compiles `cpp/revalue.cpp` with g++ (MinGW-w64 on Windows). Without it the same numbers come from NumPy, more slowly.
 
-**Screens.** With the app running, this opens all twelve screens in a real
+**Screens.** With the app running, this opens all fourteen screens in a real
 browser at desktop width, at phone width and in the dark theme (39 renders).
 It checks each for sideways scrolling, text outside its card, overlapping
 chart labels, blank charts and console errors, runs the axe-core accessibility
