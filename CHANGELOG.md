@@ -5,6 +5,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+### Added
+- Inflation two ways (Other markets): inflation swap rates from public trades against TIPS breakevens from the Federal Reserve's fitted curve (`fed.breakevens`), same day and maturity, put on the same compounding. The gap averaged +9.2 bp at 10 years over 435 days.
+
+### Changed
+- Second independent design review (graded 7/10 before these changes): every remaining card now leads with a number, orange means only "what the model is compared with", swap lengths and gaps use one format, time axes tick on evenly spaced months, short cards no longer stretch, thin currencies are listed on one line instead of empty boxes.
+
+### Fixed
+- "Days the model beat the last trade: 464" was wrong: 464 is the number of trading days compared. Reworded everywhere, with the Diebold-Mariano statistic shown as 24.5.
+- Today and Trades counted trades outside the normal range differently (86 against 73); both now say 86, split into 73 unusual and 13 off-market.
+- The price screen showed "at fair" when no rate had been typed.
+
 ## [0.3.0] - 2026-11-15
 
 ### Added

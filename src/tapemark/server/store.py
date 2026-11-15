@@ -449,6 +449,29 @@ class Store:
                 "monthly": by.fillna(0).astype({"clean": int, "options": int}).reset_index(names="month").to_dict("records"),
                 "flagged": [{"day": str(r.day.date()), "swaps": int(r.swaps), "usual": _r(r.usual, 0)} for r in flagged.itertuples()]}
 
+    def _inflation_basis(self) -> dict | None:
+        """Inflation swap rate minus TIPS breakeven, same day and maturity, in basis points.
+
+        Both are zero-coupon and annually compounded. Only days with at least
+        three swap trades at that maturity are used, and the TIPS curve is
+        never carried forward, so the two rates always share a date.
+        """
+        try:
+            be = fed.breakevens()
+        except Exception:  # noqa: BLE001 - the file is optional
+            return None
+        f = self.inflation[self.inflation["trades"] >= 3]
+        out = {}
+        for t in (5, 10):
+            sw = f[f["tenor"] == t].set_index("day")["rate"]
+            both = pd.DataFrame({"swap": sw, "bond": be[t].reindex(sw.index)}).dropna()
+            if len(both) < 20:
+                continue
+            gap = (both["swap"] - both["bond"]) * 100
+            out[f"{t}y"] = {"days": [str(d.date()) for d in both.index], "swap": both["swap"].round(3).tolist(), "bond": both["bond"].round(3).tolist(),
+                            "basis_bp": gap.round(1).tolist(), "median_bp": _r(float(gap.median()), 1), "last_bp": _r(float(gap.iloc[-1]), 1), "last_day": str(both.index[-1].date()), "days_used": int(len(both))}
+        return out or None
+
     def markets(self) -> dict:
         out = {"pca": {"nodes": NODES.tolist(), "shapes": self.pca_vec.T.round(3).tolist(), "share": [round(s, 3) for s in self.pca_share]}}
         if len(self.global_ois):
@@ -468,6 +491,7 @@ class Store:
             t10 = f[f["tenor"] == 10].set_index("day")["rate"].sort_index()
             out["inflation_10y"] = {"days": [str(d.date()) for d in t10.index], "rate": t10.round(3).tolist()}
             out["inflation_day"] = str(last.date())
+            out["inflation_basis"] = self._inflation_basis()
         if len(self.sofr):
             s = self.sofr.tail(520)
             out["funding"] = {"days": [str(d.date()) for d in s["day"]], "rate": s["rate"].tolist(), "spread_bp": ((s["p99"] - s["p1"]) * 100).round(1).tolist(),

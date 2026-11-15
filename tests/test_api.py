@@ -90,6 +90,16 @@ def test_margin_comparison_is_consistent(client):
     assert forward["clearing"] is None                                          # only offered for swaps starting now
 
 
+def test_inflation_basis_shares_dates(client):
+    ib = client.get("/api/markets").json().get("inflation_basis")
+    if not ib:
+        pytest.skip("TIPS curve not downloaded")
+    for x in ib.values():
+        assert len(x["days"]) == len(x["swap"]) == len(x["bond"]) == len(x["basis_bp"]) >= 20
+        assert all(abs(b - (s - t) * 100) < 0.11 for s, t, b in zip(x["swap"], x["bond"], x["basis_bp"], strict=True))
+        assert -150 < x["median_bp"] < 150
+
+
 def test_insights_carry_the_flow_and_futures_studies(client):
     r = client.get("/api/insights").json()
     if r.get("flow"):

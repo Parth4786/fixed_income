@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import io
 
+import numpy as np
 import pandas as pd
 import requests
 
 from tapemark.paths import RAW
 
 GSW_URL = "https://www.federalreserve.gov/data/yield-curve-tables/feds200628.csv"
+TIPS_URL = "https://www.federalreserve.gov/data/yield-curve-tables/feds200805.csv"   # fitted TIPS curve (Gurkaynak, Sack and Wright 2010)
 SOFR_URL = "https://markets.newyorkfed.org/api/rates/secured/sofr/search.json?startDate={start}&endDate={end}"
 HEADERS = {"User-Agent": "tapemark/0.1"}
 DIR = RAW / "fed"
@@ -58,3 +60,26 @@ def fetch_sofr(start: str = "2018-04-02", end: str = "2030-01-01") -> pd.DataFra
 
 def sofr() -> pd.DataFrame:
     return pd.read_parquet(DIR / "sofr.parquet")
+
+
+def fetch_breakevens() -> pd.DataFrame:
+    """Download the Board's fitted TIPS curve, which includes breakeven inflation by maturity."""
+    DIR.mkdir(parents=True, exist_ok=True)
+    resp = requests.get(TIPS_URL, headers=HEADERS, timeout=120)
+    resp.raise_for_status()
+    (DIR / "feds200805.csv").write_bytes(resp.content)
+    return breakevens()
+
+
+def breakevens() -> pd.DataFrame:
+    """Zero-coupon breakeven inflation in percent a year, annually compounded, by maturity in years (2 to 20).
+
+    The file gives continuously compounded rates; inflation swaps are quoted
+    annually compounded, so the two are put on the same footing here.
+    """
+    text = (DIR / "feds200805.csv").read_text(encoding="utf-8", errors="replace")
+    df = pd.read_csv(io.StringIO(text[text.index("Date,"):]), parse_dates=["Date"]).set_index("Date")
+    cols = [c for c in df.columns if c.startswith("BKEVEN") and c[6:].isdigit()]
+    out = df[cols].apply(pd.to_numeric, errors="coerce").dropna(how="all")
+    out.columns = [int(c[6:]) for c in cols]
+    return (np.exp(out / 100) - 1) * 100

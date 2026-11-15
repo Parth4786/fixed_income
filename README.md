@@ -27,6 +27,7 @@ Out of sample, 7 Feb 2025 to 13 Nov 2026, on real US dollar SOFR swap trades.
 | What does margin cost? | A historical margin rule was fitted to the margins the exchange publishes; two days at 99% fits best. The swap rule follows the method the clearing house describes and, tested on 1,025 later days, covered 99.4% of moves against a 99% standard. On a $100m 10-year position a cleared swap ties up 1.4 times the margin of the equivalent futures |
 | Is the option pricer right, and the volatility grid? | The pricer reproduces all 89,014 exchange-settled option prices within one price step. The volatility grid built from public premiums is within about 7 bp of the exchange's level at short option lives, but its day-to-day changes do not track the exchange's |
 | Do trades trigger more trades? | About a quarter to a third of trading is a reaction to earlier trades. The apparent jump on data-release mornings (0.56) is an artefact: once the release itself is treated as news it is 0.23, no higher than other days |
+| What do inflation markets say? | Inflation swaps price about 9 bp more inflation than TIPS breakevens at 10 years (435 days, same-day comparison): the usual liquidity gap, shown on Other markets |
 | Where does it lose? | Swap options: the last similar trade (4.0 bp of volatility) beats the fitted surface (11.1) and a Hull-White rate model (16.0). Short forward-starting swaps are a weak spot (1.1 bp) |
 
 The full report is written to `data/reports/model_validation.md` by `tapemark score`.
@@ -99,7 +100,7 @@ src/tapemark/
   validation.py  the validation pack
   server/     web service: read models, pricing, saved items, live feed
 web/          the frontend: plain HTML, CSS and JavaScript, no build step
-tests/        87 tests: rules, pricing identities, QuantLib, risk, swap futures, the clustering estimator, the web service
+tests/        88 tests: rules, pricing identities, QuantLib, risk, swap futures, the clustering estimator, the web service
 tools/        render_screens.py: every screen in a real browser at three settings, layout and accessibility checked
 docs/         architecture, design, models, method, validation, decisions
 ```

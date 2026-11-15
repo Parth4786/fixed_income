@@ -89,7 +89,7 @@ The interactive API reference is at <http://127.0.0.1:8765/docs>.
 | Today | Three written sentences on the day, then where rates closed, what moved, where risk traded, trades furthest from fair |
 | Trades | Every clean trade with the fair rate just before it, the gap in basis points and dollars, a flag when unusual; the live feed |
 | Volatility | Volatility grid from real premiums, recent option trades, history |
-| Other markets | Swap curves in seven other currencies, expected inflation, swap rates against Treasuries, funding rate and pressure gauge |
+| Other markets | Swap curves in other currencies, expected inflation, inflation swaps against TIPS breakevens, swap rates against Treasuries, funding rate and pressure gauge |
 | Patterns | Rich/cheap screen, implied against realised volatility, cross-market correlations, time-of-day effects, what drives the gap to fair, trade clustering around data releases, signed flow, late-day drift |
 | Price a trade | A swap or swap option priced under every model at once, with each model's proven accuracy; verdict, dollar cost, risk, hedge, scenarios; margin and its funding cost as a swap against swap futures |
 | Model lab | Change the curve model's settings and rerun it on recent real trades, against the published settings and the baseline |
