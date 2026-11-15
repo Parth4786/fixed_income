@@ -113,7 +113,7 @@ function drawLine(host, { series, labels, yfmt = (v) => v.toFixed(2), h = 230, x
   const svg = s("svg", { viewBox: `0 0 ${W} ${h}`, width: W, height: h, role: "img" }, null);
   const vals = series.flatMap((x) => x.values).concat(dots ? dots.map((d) => d.y) : [], ref ? [ref.y] : [], zero ? [0] : []).filter((v) => v != null && isFinite(v));
   let lo = Math.min(...vals), hi = Math.max(...vals);
-  const padY = (hi - lo || 1) * 0.08; lo -= padY; hi += padY;
+  const padY = (hi - lo || 1) * (series.some((x) => x.markers) ? 0.18 : 0.08); lo -= padY; hi += padY;   // labelled points need room
   if (ydomain) [lo, hi] = ydomain;
   const n = labels.length, X = (i) => L + (n === 1 ? 0.5 : i / (n - 1)) * (W - L - R), Y = (v) => T + (1 - (v - lo) / (hi - lo)) * (h - T - B);
   for (const t of niceTicks(lo, hi)) {
@@ -194,7 +194,7 @@ function drawBars(host, { cats, series, yfmt = (v) => v.toFixed(1), h = 220, sta
   if (series.length > 1) host.append(legend(series.map((x) => ({ ...x, box: true }))));
   const L = 50, R = 10, T = 14;
   // Category names wrap onto as many lines as they need, so every bar keeps its name.
-  const perLine = Math.max(1, Math.floor(((W - L - R) / cats.length - 6) / 6.4));
+  const perLine = Math.max(1, Math.floor(((W - L - R) / cats.length - 4) / 5.9));
   const wrapped = cats.map((c) => {
     const out = [];
     for (const word of String(c).split(" ")) {

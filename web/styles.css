@@ -22,7 +22,7 @@
   --accent:#5b9ff0; --accent-soft:#16263b; --on-accent:#0b1220;
   --s1:#3987e5; --s2:#d95926; --s3:#199e70;
   --pos:#e66767; --neg:#3987e5; --mid:#3a424d;
-  --seq-lo:#12305a; --seq-hi:#86b6ef;
+  --seq-lo:#1e2a3a; --seq-hi:#4a93ec;
   --good:#3ecf6e; --good-soft:#12301d; --warn:#f2b632; --warn-soft:#33270d; --crit:#f07f7f; --crit-soft:#3a1717; } }
 :root[data-theme="dark"]{
   color-scheme:dark;
@@ -31,7 +31,7 @@
   --accent:#5b9ff0; --accent-soft:#16263b; --on-accent:#0b1220;
   --s1:#3987e5; --s2:#d95926; --s3:#199e70;
   --pos:#e66767; --neg:#3987e5; --mid:#3a424d;
-  --seq-lo:#12305a; --seq-hi:#86b6ef;
+  --seq-lo:#1e2a3a; --seq-hi:#4a93ec;
   --good:#3ecf6e; --good-soft:#12301d; --warn:#f2b632; --warn-soft:#33270d; --crit:#f07f7f; --crit-soft:#3a1717;
 }
 *{box-sizing:border-box}
@@ -282,7 +282,7 @@ details.more>*+*{margin-top:8px}
 .arrow{font-size:10px;margin-right:1px;color:var(--muted)} .arrow.up{color:var(--pos)} .arrow.down{color:var(--neg)}
 /* Gap bars: ticks a quarter of the way out mark the edge of the normal range. */
 .gapbar.ticks::before,.gapbar.ticks::after{content:"";position:absolute;top:0;bottom:0;width:1px;background:var(--axis)}
-.gapbar.ticks::before{left:21px} .gapbar.ticks::after{left:63px}
+.gapbar.ticks::before{left:25%} .gapbar.ticks::after{left:75%}
 .chip-space{display:inline-block;width:0}
 td .chip{margin-left:8px}
 /* A short card keeps its own height instead of stretching to its neighbour and showing a blank. */
@@ -297,3 +297,12 @@ td .chip{margin-left:8px}
 @media (max-width:900px){#nav{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 36px),transparent);padding-right:36px}}
 /* Phone: a chip in a table cell sits under its number, so the cell stays narrow. */
 @media (max-width:640px){td .chip{display:block;width:max-content;margin:3px 0 0 auto}.headline b{font-size:22px}}
+/* Phone: the header keeps the date picker whole (the live dot stays, its words go), and tables show all their rows. */
+@media (max-width:640px){#livetext{display:none}.scroll{max-height:none}}
+/* Laptop widths: the column marked `mid` (venue on Trades) gives way first. */
+@media (max-width:1360px){.mid{display:none}}
+/* Tablet widths: low-priority columns give way, as on phones. */
+@media (max-width:1100px){.lo{display:none}}
+/* Laptop widths: tables tighten a little so paired cards keep their columns. */
+@media (max-width:1360px){table{font-size:12.5px}th,td{padding:8px 6px}.wrapcell{min-width:120px}.gapbar{width:64px}}
+@media (max-width:640px){.wrapcell{min-width:84px}}

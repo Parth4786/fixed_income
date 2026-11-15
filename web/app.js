@@ -82,17 +82,18 @@ function kpi(label, value, detail, trend, minor = false) {
 }
 const chip = (text, kind = "plain") => el("span", { class: `chip ${kind}`, text });
 function table(cols, rows, { scroll = true } = {}) {
-  const t = el("table", {}, el("thead", {}, el("tr", {}, cols.map((c) => el("th", { class: `${c.n ? "n" : ""} ${c.lo ? "lo" : ""}` }, c.h || el("span", { class: "sr", text: c.sr || "Detail" }))))));
+  const t = el("table", {}, el("thead", {}, el("tr", {}, cols.map((c) => el("th", { class: `${c.n ? "n" : ""} ${c.lo ? "lo" : ""} ${c.mid ? "mid" : ""}` }, c.h || el("span", { class: "sr", text: c.sr || "Detail" }))))));
   const body = el("tbody");
-  for (const r of rows) body.append(el("tr", {}, cols.map((c) => el("td", { class: `${c.n ? "n" : ""} ${c.wrap ? "wrapcell" : ""} ${c.lo ? "lo" : ""}` }, c.f(r)))));
+  for (const r of rows) body.append(el("tr", {}, cols.map((c) => el("td", { class: `${c.n ? "n" : ""} ${c.wrap ? "wrapcell" : ""} ${c.lo ? "lo" : ""} ${c.mid ? "mid" : ""}` }, c.f(r)))));
   t.append(body);
   return el("div", scroll ? { class: "scroll", tabindex: 0, role: "group", "aria-label": "Table; scroll for more rows" } : { class: "scroll flat" }, t);
 }
 /* A gap drawn against its normal range. The two ticks mark the edge of the range, a quarter of the way out on each
    side, so a bar that passes a tick is an unusual trade. `money` colours by gain and loss instead of above and below. */
-function gapBar(gap, band, money = false) {
-  const w = Math.min(Math.abs(gap) / (2 * (band || 1.5)), 1) * 42, b = el("b");
-  b.style.width = `${Math.max(w, 1)}px`; b.style.left = gap >= 0 ? "42px" : `${42 - Math.max(w, 1)}px`;
+function gapBar(gap, band, money = false, scale = null) {
+  // With `scale` (the widest gap in the table) bar lengths compare across rows; without it a gap of twice the range fills the bar.
+  const full = scale || 2 * (band || 1.5), w = Math.max(Math.min(Math.abs(gap) / full, 1) * 50, 1), b = el("b");   // percent of the bar, half each side
+  b.style.width = `${w}%`; b.style.left = gap >= 0 ? "50%" : `${50 - w}%`;
   b.style.background = money ? (gap >= 0 ? cv("--good") : cv("--crit")) : gap >= 0 ? cv("--pos") : cv("--neg");
   return el("span", { class: `gapbar ${money ? "" : "ticks"}`, "aria-hidden": "true" }, b);
 }
@@ -151,7 +152,7 @@ function brief(o) {
     el("span", {}, el("b", { text: `${num(o.trades.all_swaps)} dollar swaps` }), ` traded, ${size(o.trades.notional_bn * 1e9)} of size. `,
       o.trades.busiest_length ? `The most risk changed hands in ${o.trades.busiest_length} swaps (${o.trades.busiest_share_pct}% of the total).` : ""),
     el("span", {}, el("b", { text: `${num(o.trades.outside)} of ${num(o.trades.clean)} clean trades` }), " landed outside the ", term("normal range", "range"), ". ",
-      top ? `The furthest was a ${top.length}-year at ${pct(top.rate, 4)}, ${Math.abs(top.gap_bp).toFixed(1)} bp ${top.gap_bp < 0 ? "below" : "above"} fair on ${size(top.notional)}.` : ""),
+      top ? `The furthest was a ${top.length}-year at ${pct(top.rate, 4)}, ${Math.abs(top.gap_bp).toFixed(2)} bp ${top.gap_bp < 0 ? "below" : "above"} fair on ${size(top.notional)}.` : ""),
   ];
   return el("div", { class: "brief" }, el("ul", {}, items.map((x, i) => el("li", {}, el("span", { class: "n", text: i + 1 }), x))));
 }
@@ -220,13 +221,15 @@ async function today() {
 // ================================================================ Trades
 /* A trade more than 25 bp from fair was almost certainly agreed on terms the public record does not show (an old coupon,
    an unreported fee). It is marked as such, and kept apart from trades that are merely outside the normal range. */
+/* Public reports give a market identifier code; XOFF means off any venue and XXXX that none was reported. */
+const venue = (v) => ({ XOFF: "off-venue", XXXX: "not reported", BBSF: "Bloomberg SEF", TWSF: "Tradeweb SEF" }[v] || v || "not reported");   // others: market code as reported
 const offMarket = (r) => r.gap_bp != null && Math.abs(r.gap_bp) > 25;
 const tradeCols = [
   { h: "Time, UTC", f: (r) => (/^\d{4}-\d\d-\d\d /.test(r.time) ? `${nice(r.time.slice(0, 10)).replace(/ \d{4}$/, "")}, ${r.time.slice(11)}` : r.time) }, { h: "Length", n: 1, f: (r) => yrs(r.length) }, { h: "Traded", n: 1, f: (r) => pct(r.rate, 4) },
-  { h: "Fair just before", lo: 1, n: 1, f: (r) => pct(r.fair, 4) },
-  { h: "Gap to fair", n: 1, f: (r) => el("span", {}, bp(r.gap_bp, 2), gapBar(r.gap_bp, r.band_bp), offMarket(r) ? chip("off-market terms", "plain") : r.outside ? chip("unusual", "warn") : el("span", { class: "chip-space" })) },
+  { h: "Fair before", lo: 1, n: 1, f: (r) => pct(r.fair, 4) },
+  { h: "Gap to fair", n: 1, f: (r) => el("span", {}, bp(r.gap_bp, 2), gapBar(r.gap_bp, r.band_bp, false, state.gapMax), offMarket(r) ? chip("off-market terms", "plain") : r.outside ? chip("unusual", "warn") : el("span", { class: "chip-space" })) },
   { h: "Normal range", lo: 1, n: 1, f: (r) => (r.band_bp == null ? "" : `±${r.band_bp.toFixed(2)} bp`) },
-  { h: "Size", lo: 1, n: 1, f: (r) => size(r.notional) }, { h: "Gap in dollars", n: 1, lo: 1, f: (r) => (r.dollars == null ? "" : money(r.dollars, true)) }, { h: "Venue", lo: 1, f: (r) => r.venue },
+  { h: "Size", lo: 1, n: 1, f: (r) => size(r.notional) }, { h: "Gap, $", n: 1, lo: 1, f: (r) => (r.dollars == null ? "" : money(r.dollars, true)) }, { h: "Venue", lo: 1, mid: 1, f: (r) => venue(r.venue) },
 ];
 async function trades() {
   const [t, live] = await Promise.all([q("/api/tape?limit=800"), api("/api/live")]);
@@ -239,11 +242,12 @@ async function trades() {
   const redraw = () => {
     const rows = t.rows.filter((r) => (!only.checked || r.outside) && r.notional >= min.value * 1e6);
     const rank = (r) => (offMarket(r) ? 1 : r.outside ? 2 : 0);          // unusual, then off-market, then the rest; widest first within each
+    state.gapMax = Math.max(...rows.filter((r) => !offMarket(r)).map((r) => Math.abs(r.gap_bp || 0)), 1);
     tbl.replaceChildren(table(tradeCols, order.value === "unusual" ? rows.slice().sort((a, b) => rank(b) - rank(a) || stretch(b) - stretch(a)) : rows));
   };
   only.addEventListener("change", redraw); min.addEventListener("input", redraw); order.addEventListener("change", redraw);
   bTape.append(headline(`${num(outside)} of ${num(t.rows.length)}`, `landed outside the normal range${off ? `: ${num(outside - off)} unusual, and ${off} over 25 bp from fair, which points to terms the public record does not show` : ""}`),
-    el("p", { class: "note lo", text: "Bars: blue below fair, red above. A bar past a tick is outside the normal range." }),
+    el("p", { class: "note lo", text: "Bars: blue below fair, red above, drawn to the scale of the widest gap shown (off-market trades fill the bar)." }),
     el("div", { class: "filters" }, el("label", {}, "Order", order), el("label", { class: "check" }, only, "Only unusual and off-market"), el("label", {}, "Minimum size, $m", min)), tbl);
   redraw();
 
@@ -325,7 +329,7 @@ function swapResult(out, r) {
   // The answer first, as four numbers.
   const strip = el("div", { class: "kpis" },
     kpi(term("Fair rate", "fair"), pct(r.fair_rate, 4), `${r.length_years}-year swap, curve of ${nice(r.day)}`),
-    kpi(term("Normal range", "range"), `±${r.band_bp.toFixed(1)} bp`, `${pct(r.low, 4)} to ${pct(r.high, 4)}`),
+    kpi(term("Normal range", "range"), `±${r.band_bp.toFixed(2)} bp`, `${pct(r.low, 4)} to ${pct(r.high, 4)}`),
     kpi("Your rate against fair", atFair ? "—" : bp(r.gap_bp, 1), atFair ? "type a fixed rate above to compare it" : `${money(Math.abs(r.value))} ${worse ? "worse" : "better"} for you than fair`),
     kpi(term("Gain per basis point rise", "perbp"), money(r.dv01, true), r.pay_fixed ? "you pay fixed: you gain when rates rise" : "you receive fixed: you lose when rates rise"));
 
@@ -340,9 +344,9 @@ function swapResult(out, r) {
   const line1 = atFair ? "No rate entered: the numbers above are for a trade at fair."
     : `${pct(r.rate, 4)} is ${Math.abs(r.gap_bp).toFixed(1)} bp ${r.gap_bp > 0 ? "above" : "below"} fair: ${money(Math.abs(r.value))} ${worse ? "worse" : "better"} for you.`;
   const why = atFair ? `9 in 10 recent real trades of this length landed between ${pct(r.low, 4)} and ${pct(r.high, 4)}.`
-    : inside ? `Inside the normal range: 9 in 10 recent real trades of this length landed within ${r.band_bp.toFixed(1)} bp of fair.`
-      : `Outside the normal range: only about 1 in 10 recent real trades of this length landed more than ${r.band_bp.toFixed(1)} bp from fair.`;
-  b1.append(el("div", { class: "verdict" }, el("div", {}, atFair ? chip("fair value", "good") : chip(inside ? "in line with the market" : "unusual price", inside ? "good" : "warn")),
+    : inside ? `Inside the normal range: 9 in 10 recent real trades of this length landed within ${r.band_bp.toFixed(2)} bp of fair.`
+      : `Outside the normal range: only about 1 in 10 recent real trades of this length landed more than ${r.band_bp.toFixed(2)} bp from fair.`;
+  b1.append(el("div", { class: "verdict" }, el("div", {}, atFair ? chip("no rate entered", "plain") : chip(inside ? "in line with the market" : "unusual price", inside ? "good" : "warn")),
     el("div", { class: "line", text: line1 }), el("div", { class: "why", text: why }), range), saveRow());
 
   const [c2, b2] = card("The trade in numbers", null, "c5");
@@ -367,7 +371,7 @@ function swapResult(out, r) {
     el("p", { class: "note", text: "A small unexplained part means the risk numbers describe the trade well." }));
   const [cM, bM] = card("The same swap under every model", `Each model's rate, and its typical miss against the next real ${r.length_group} trade.`, "c12");
   const worstMiss = Math.max(...r.models.map((m) => m.miss_bp));
-  const missBar = (m) => { const b = el("b"); b.style.left = "0"; b.style.width = `${Math.max(2, m.miss_bp / worstMiss * 84)}px`; b.style.background = m.used ? cv("--s1") : cv("--muted"); return el("span", { class: "gapbar", "aria-hidden": "true", style: "background:none" }, b); };
+  const missBar = (m) => { const b = el("b"); b.style.left = "0"; b.style.width = `${Math.max(2, m.miss_bp / worstMiss * 100)}%`; b.style.background = m.used ? cv("--s1") : cv("--muted"); return el("span", { class: "gapbar", "aria-hidden": "true", style: "background:none" }, b); };
   bM.append(table([{ h: "Model", wrap: 1, f: (m) => el("span", {}, m.name.replace("Curve model", "Model").replace("Today's closing curve (outside provider)", "Same-day close").replace("Yesterday's closing curve (outside provider)", "Prior-day close"), " ", m.used ? chip("used", "good") : "") }, { h: "Fair rate", n: 1, f: (m) => pct(m.rate, 4) }, { h: "Your rate against it", n: 1, lo: 1, f: (m) => bp(m.your_gap_bp, 1) },
     { h: "Typical miss", n: 1, f: (m) => el("span", {}, `${m.miss_bp.toFixed(2)} bp`, missBar(m)) }, { h: "", wrap: 1, lo: 1, f: (m) => el("span", { class: "note", text: m.how }) }], r.models, { scroll: false }));
   const rows = [strip, grid(c1), grid(c2, c3), grid(c4, c5), grid(cM)];
@@ -412,7 +416,7 @@ function optionResult(out, r) {
     el("div", { class: "takeaway" }, el("b", { text: "Why the last trade: " }), "in testing, the last similar trade predicted the next one better than a smooth surface, so it is used when it is at most three days old. The surface fills in where nothing has traded. ", el("a", { href: "#accuracy", text: "See the result" })));
   const [cM, bM] = card("The same option under every model", "Each model's volatility and premium, and how far it has typically been from the next real trade.", "c12");
   const worstMiss = Math.max(...r.models.map((m) => m.miss_bp));
-  const missBar = (m) => { const b = el("b"); b.style.left = "0"; b.style.width = `${Math.max(2, m.miss_bp / worstMiss * 84)}px`; b.style.background = m.used ? cv("--s1") : cv("--muted"); return el("span", { class: "gapbar", "aria-hidden": "true", style: "background:none" }, b); };
+  const missBar = (m) => { const b = el("b"); b.style.left = "0"; b.style.width = `${Math.max(2, m.miss_bp / worstMiss * 100)}%`; b.style.background = m.used ? cv("--s1") : cv("--muted"); return el("span", { class: "gapbar", "aria-hidden": "true", style: "background:none" }, b); };
   bM.append(table([{ h: "Model", f: (m) => el("span", {}, m.name, " ", m.used ? chip("used", "good") : "") }, { h: "Volatility", n: 1, f: (m) => `${m.vol_bp} bp` }, { h: "Premium", n: 1, f: (m) => money(m.premium) },
     ...(paid ? [{ h: "Paid against it", n: 1, f: (m) => money(r.premium_paid - m.premium, true) }] : []), { h: "Typical miss", n: 1, f: (m) => el("span", {}, `${m.miss_bp.toFixed(1)} bp of volatility`, missBar(m)) }], r.models, { scroll: false }));
   out.replaceChildren(strip, grid(c1), grid(c2, c3), grid(cM));
@@ -422,7 +426,7 @@ function optionResult(out, r) {
 async function vol() {
   const v = await q("/api/vol");
   const exp = (t) => (t < 1 ? `${Math.round(t * 12)} month${Math.round(t * 12) === 1 ? "" : "s"}` : t === 1 ? "1 year" : `${t} years`), short = (t) => (t < 1 ? `${Math.round(t * 12)}m` : `${t}y`);
-  const [c1, b1] = card(`Volatility on ${nice(v.day)}`, el("span", {}, "Expected yearly move of the swap rate, in ", term("basis points", "bp"), ". Rows: how long the option lasts. Columns: length of the swap. Darker is higher. Dotted numbers have little recent trading behind them."), "c6");
+  const [c1, b1] = card(`Volatility on ${nice(v.day)}`, el("span", {}, "Expected yearly move of the swap rate, in ", term("basis points", "bp"), ". Rows: how long the option lasts. Columns: length of the swap. Stronger blue is higher. Dotted numbers have little recent trading behind them."), "c6");
   if (v.grid) {
     const flat = v.grid.flat().filter((x) => x != null), lo = Math.min(...flat), hi = Math.max(...flat);
     const t = el("table", { class: "heat" }, el("thead", {}, el("tr", {}, el("th", {}, el("span", { class: "sr", text: "Option life" })), v.tenor.map((x) => el("th", { text: `${x}y` })))));
@@ -475,14 +479,13 @@ async function markets() {
   const ib = m.inflation_basis && (m.inflation_basis["10y"] || m.inflation_basis["5y"]);
   if (ib) {
     const tenor = m.inflation_basis["10y"] ? "10-year" : "5-year";
-    const [c6, b6] = card("Inflation two ways: swaps against Treasury bonds", `Expected yearly inflation over ${tenor}s, read from inflation swaps (public trades) and from inflation-protected Treasuries (TIPS, the Federal Reserve's fitted curve). Days with at least three swap trades.`, "c8");
-    b6.append(headline(`${bp(ib.last_bp, 1)}`, `swap minus bond on ${nice(ib.last_day)}; typical gap ${bp(ib.median_bp, 1)} over ${ib.days_used} days`));
+    const [c6, b6] = card("Inflation two ways: swaps against Treasury bonds", `Expected yearly inflation over ${tenor}s, read from inflation swaps (public trades) and from inflation-protected Treasuries (TIPS, the Federal Reserve's fitted curve). Days with at least three swap trades.`, "c12");
+    b6.append(headline(`${bp(ib.last_bp, 1)}`, `swap minus bond; typical gap ${bp(ib.median_bp, 1)} over ${ib.days_used} days`, chip(`latest TIPS curve ${nice(ib.last_day).replace(/ \d{4}$/, "")}`, "plain")));
     line(b6, { labels: ib.days.map(nice), ...monthTicks(ib.days), yfmt: (v) => `${v.toFixed(2)}%`, h: 240, endLabels: false,
       series: [{ name: "Inflation swaps", color: cv("--s1"), values: ib.swap }, { name: "TIPS breakeven", color: cv("--s2"), values: ib.bond }] });
-    const [c7, b7] = card("Why they differ", null, "c4 tight");
-    b7.append(el("p", {}, "Both measure the same thing, so the gap is a price: swaps usually sit above TIPS because TIPS are harder to trade and to fund, and part of a breakeven is a liquidity discount rather than lower expected inflation."),
-      el("p", { class: "note", text: "A gap far from its usual level is a relative-value signal desks watch; it is not a forecast of inflation." }));
-    rows.push(grid(c6, c7));
+    b6.append(el("div", { class: "takeaway" }, el("b", { text: "Why they differ: " }), "Both measure the same thing, so the gap is a price: swaps usually sit above TIPS because TIPS are harder to trade and to fund, and part of a breakeven is a liquidity discount rather than lower expected inflation.",
+      " A gap far from its usual level is a relative-value signal desks watch; it is not a forecast of inflation."));
+    rows.push(grid(c6));
   }
   page("Other markets", "Rates products found in the same free public files, plus Treasury and funding data from the Federal Reserve.", ...rows);
 }
@@ -556,6 +559,7 @@ async function patterns() {
   if (p.flow) {
     const cl = p.flow.clustering, sf = p.flow.signed_flow, ld = p.flow.late_day;
     const [f1, g1] = card("Do trades trigger more trades?", "Seconds with a trade, per minute, around the 8:30 New York releases of consumer prices and jobs.", "c7");
+    g1.append(headline(`${cl.calendar.median_jump.toFixed(1)}×`, "as many seconds with a trade in the first five minutes after a release as on other mornings"));
     line(g1, { labels: cl.profile.minutes, h: 250, endLabels: false, zero: true, yfmt: (v) => v.toFixed(1), xticks: [0, 10, 25, 40, 55, 69], series: [{ name: `Release days (${cl.calendar.release_days})`, color: cv("--s1"), values: cl.profile.release }, { name: `Other days (${cl.calendar.other_days})`, color: cv("--s2"), values: cl.profile.other }] });
     const [f2, g2] = card("Share of trading that is a reaction to earlier trades", "A self-exciting (Hawkes) model fitted to every second. 0 means trades arrive on their own; 1 means trading feeds on itself.", "c5 tight");
     const sets = [["8:30 hour, release days", cl.release], ["8:30 hour, other days", cl.other], ["10:30 hour, other days", cl.midmorning]];
@@ -563,25 +567,25 @@ async function patterns() {
       el("div", { class: "takeaway" }, el("b", { text: "The trap: " }), `fitted naively, release mornings score ${cl.release_flat_baseline.branching.toFixed(2)}. That is the burst of news, not trades triggering trades.`),
       more("By hour", table([{ h: "Hours", wrap: 1, f: (x) => x[0] }, { h: "Share", n: 1, f: (x) => `${x[1].branching.toFixed(2)} ± ${x[1].branching_se.toFixed(2)}` }, { h: "Fades in", n: 1, f: (x) => `${Math.round(x[1].half_life_s)} s` }], sets, { scroll: false })));
     flowRows.push(grid(f1, f2));
-    nulls.push(["Net paying flow", "the rate over the next ten minutes", `${lvl(sf.next_interval.out_of_sample_r_squared * 100, 2)}% of the variation explained on later days`, chip("no", "plain")],
+    nulls.push(["Net paying flow", "the rate over the next ten minutes", sf.next_interval.out_of_sample_r_squared <= 0 ? "none: on later days it does worse than assuming no change" : `${(sf.next_interval.out_of_sample_r_squared * 100).toFixed(2)}% of the variation explained on later days`, chip("no", "plain")],
       ["A move of 8 bp or more by 2 pm", "more of the same until 4 pm", `${ld.same_direction_pct.toFixed(0)}% continued, on ${ld.big_days} days`, chip("no", "plain")]);
     detail.push(more("Net paying flow", kv([["Trades given a side from where they printed against fair", `${sf.signed_share_pct.toFixed(1)}% of ${num(sf.trades)}`], ["Move in the same ten minutes, per $1bn of net paying", `${bp(sf.same_interval.bp_per_bn, 2)} (t ${lvl(sf.same_interval.t, 1)})`],
       ["Move in the next ten minutes, per $1bn", `${bp(sf.next_interval.bp_per_bn, 2)} (t ${lvl(sf.next_interval.t, 1)})`]]),
       el("p", { class: "note", text: "Paying flow lifts the rate while it trades, and part of that is built in, because the model learns from those same trades. Flow is in billions of ten-year equivalents." })),
-      more("Late-day drift", kv([["Days with a move of 8 bp or more by 2 pm New York", `${ld.big_days} of ${ld.days}`], ["Kept going in the same direction until 4 pm", `${ld.same_direction_pct.toFixed(1)}%`], ["Average continuation", `${bp(ld.mean_continuation_bp, 2)} (t ${lvl(ld.t, 2)})`]])));
+      more("A move of 8 bp or more by 2 pm", kv([["Days with a move of 8 bp or more by 2 pm New York", `${ld.big_days} of ${ld.days}`], ["Kept going in the same direction until 4 pm", `${ld.same_direction_pct.toFixed(1)}%`], ["Average continuation", `${bp(ld.mean_continuation_bp, 2)} (t ${lvl(ld.t, 2)})`]])));
   }
   if (dl.horizons.length) {
     const one = dl.horizons[0], ten = dl.lengths.indexOf("10y");
     nulls.push(["A three-factor model of the curve (Diebold-Li)", "tomorrow's curve", `${one.model_rmse_bp[ten].toFixed(1)} bp error against ${one.random_walk_rmse_bp[ten].toFixed(1)} bp for assuming no change (10-year)`, chip("no change wins", "warn")]);
     const rows = dl.horizons.flatMap((x) => [{ h: x, who: "Diebold-Li", v: x.model_rmse_bp }, { h: x, who: "No change", v: x.random_walk_rmse_bp }]);
-    detail.push(more("Curve forecast by horizon", table([{ h: "Days", f: (r) => (r.who === "Diebold-Li" ? r.h.days_ahead : "") }, { h: "Forecast", f: (r) => r.who }, ...dl.lengths.map((l, i) => ({ h: l, n: 1, lo: l !== "10y", f: (r) => r.v[i].toFixed(2) })),
+    detail.push(more("A three-factor model of the curve (Diebold-Li), by horizon", table([{ h: "Days", f: (r) => (r.who === "Diebold-Li" ? r.h.days_ahead : "") }, { h: "Forecast", f: (r) => r.who }, ...dl.lengths.map((l, i) => ({ h: l, n: 1, lo: l !== "10y", f: (r) => r.v[i].toFixed(2) })),
       { h: "Verdict", f: (r) => (r.who === "Diebold-Li" ? (r.h.t_stat < -2 ? chip("model wins", "good") : r.h.t_stat > 2 ? chip("no change wins", "warn") : chip("no reliable difference", "plain")) : "") }], rows, { scroll: false }),
       el("p", { class: "note", text: `Error in basis points on ${dl.days} days. The three factors describe each day's curve to within ${dl.fit_rmse_bp.toFixed(1)} bp; forecasting it is another matter.` })));
   } else nulls.push(["A three-factor model of the curve (Diebold-Li)", "tomorrow's curve", `needs about ${dl.needs_days || 240} trading days of history; ${dl.days} are loaded`, chip("not run", "plain")]);
   nulls.push(["Size, length, hour and venue of a trade", "how far it lands from fair", `${gd.improvement_pct.toFixed(1)}% better than guessing the typical gap, on ${num(gd.test_trades)} later trades`, chip("barely", "plain")]);
   const worst = gd.importance[0].worsening_bp;
-  const impBar = (r) => { const b = el("b"); b.style.left = "0"; b.style.width = `${Math.max(1, r.worsening_bp / worst * 84)}px`; b.style.background = cv("--s1"); return el("span", { class: "gapbar", "aria-hidden": "true", style: "background:none" }, b); };
-  detail.push(more("What a machine-learning model of the gap leans on", table([{ h: "Input", wrap: 1, f: (r) => r.feature }, { h: "Error added when scrambled", n: 1, f: (r) => el("span", {}, `${r.worsening_bp.toFixed(4)} bp`, impBar(r)) }], gd.importance, { scroll: false }),
+  const impBar = (r) => { const b = el("b"); b.style.left = "0"; b.style.width = `${Math.max(1, r.worsening_bp / worst * 100)}%`; b.style.background = cv("--s1"); return el("span", { class: "gapbar", "aria-hidden": "true", style: "background:none" }, b); };
+  detail.push(more("Size, length, hour and venue: what the model leans on", table([{ h: "Input", wrap: 1, f: (r) => r.feature }, { h: "Error added when scrambled", n: 1, f: (r) => el("span", {}, `${r.worsening_bp.toFixed(4)} bp`, impBar(r)) }], gd.importance, { scroll: false }),
     el("p", { class: "note", text: `Gradient-boosted trees trained on trades before ${nice(gd.train_until)}. Average error ${gd.mae_model_bp.toFixed(3)} bp against ${gd.mae_baseline_bp.toFixed(3)} bp for always guessing the typical gap.` })));
   const [cN, bN] = card(`${nulls.length} things that do not predict`, "Each was tested on days or trades it had not seen. Knowing what does not work is part of the result.", "c12");
   bN.append(table([{ h: "This", wrap: 1, f: (r) => r[0] }, { h: "Does it predict", wrap: 1, lo: 1, f: (r) => r[1] }, { h: "Result", wrap: 1, f: (r) => r[2] }, { h: "", sr: "Verdict", f: (r) => r[3] }], nulls, { scroll: false }), ...detail);
@@ -612,7 +616,7 @@ async function lab() {
       const win = `last ${r.window.days} days`;
       const kp = el("div", { class: "kpis" }, kpi(`Typical miss, your settings, ${win}`, `${r.yours.median_bp.toFixed(2)} bp`, `95 in 100 within ${r.yours.p95_bp.toFixed(2)} bp`), kpi(`Published settings, ${win}`, `${r.frozen.median_bp.toFixed(2)} bp`, `95 in 100 within ${r.frozen.p95_bp.toFixed(2)} bp`),
         kpi(`Last trade, ${win}`, `${r.last_trade.median_bp.toFixed(2)} bp`, "the simple alternative to beat"), kpi("Trades damped", `${r.yours.damped_pct.toFixed(1)}%`, `published: ${r.frozen.damped_pct.toFixed(1)}%`));
-      const [c1, b1] = card("Day by day", `Typical miss on ${num(r.window.trades)} real trades, ${nice(r.window.from)} to ${nice(r.window.to)}.`, "c8");
+      const [c1, b1] = card("Day by day", `Typical miss on ${num(r.window.trades)} real trades, ${nice(r.window.from)} to ${nice(r.window.to)}.`, "c12");
       const counts = r.daily.trades || [], usual = counts.slice().sort((a, b) => a - b)[Math.floor(counts.length / 2)] || 0;
       const full = r.daily.days.map((_, i) => i).filter((i) => !(counts[i] < usual / 5)), thin = r.daily.days.map((d, i) => [d, counts[i]]).filter(([, n]) => n < usual / 5);
       // Published settings are drawn dashed and first, so the solid line for your settings stays visible where the two agree.
@@ -620,11 +624,10 @@ async function lab() {
         series: Math.abs(diff) < 1e-9 ? [{ name: "Your settings = published settings", color: cv("--s1"), values: full.map((i) => r.daily.yours[i]) }]
           : [{ name: "Published settings", color: cv("--s2"), dash: true, values: full.map((i) => r.daily.frozen[i]) }, { name: "Your settings", color: cv("--s1"), values: full.map((i) => r.daily.yours[i]) }] });
       if (thin.length) b1.append(el("p", { class: "note", text: `Left out: ${thin.map(([d, n]) => `${nice(d)} (${n} trades against a usual ${num(usual)})`).join("; ")}.` }));
-      const [c2, b2] = card("Reading", null, "c4 tight");
-      b2.append(el("div", { class: "verdict" }, el("div", {}, chip(Math.abs(diff) < 1 ? "about the same" : diff > 0 ? "better on this window" : "worse on this window", Math.abs(diff) < 1 ? "plain" : diff > 0 ? "good" : "warn")),
+      b1.prepend(el("div", { class: "verdict" }, el("div", {}, chip(Math.abs(diff) < 1 ? "about the same" : diff > 0 ? "better on this window" : "worse on this window", Math.abs(diff) < 1 ? "plain" : diff > 0 ? "good" : "warn")),
         el("div", { class: "why", text: Math.abs(diff) < 1 ? "Your settings and the published ones perform alike here." : `Your settings miss by ${Math.abs(diff).toFixed(1)}% ${diff > 0 ? "less" : "more"} than the published ones on this window.` })),
         el("div", { class: "takeaway" }, el("b", { text: "A caution: " }), "settings chosen on the same trades they are scored on always look good. The published ones were fixed after the first 60 days and never revisited."));
-      out.replaceChildren(kp, grid(c1, c2));
+      out.replaceChildren(kp, grid(c1));
     } catch (e) { out.replaceChildren(el("p", { class: "err", text: `Could not run: ${e.message}` })); }
   };
   form.addEventListener("submit", (e) => { e.preventDefault(); run(); });
@@ -663,7 +666,8 @@ async function accuracy() {
       [["All", fw.overall], ...Object.entries(fw.by_start), ...Object.entries(fw.by_length)], { scroll: false })));
 
   const months = Object.keys(sw.by_month).filter((m) => sw.by_month[m].filter.n > 2000);
-  const mt = { xticks: months.map((_, i) => i).filter((i) => i % 4 === 0), xtext: months.filter((_, i) => i % 4 === 0).map(niceMonth) };
+  const even = months.map((m, i) => [m, i]).filter(([m]) => (+m.slice(5, 7) - 1) % 4 === 0);
+  const mt = { xticks: even.map(([, i]) => i), xtext: even.map(([m]) => niceMonth(m)) };
   const [c3, b3] = card("Is the normal range honest?", "Share of trades that landed inside the range each month. A range built to hold 90% should hold about 90%.", "c6");
   b3.append(headline(`${(sw.coverage.calibrated * 100).toFixed(1)}%`, "of trades landed inside, against a 90% target", chip("honest", "good")));
   line(b3, { labels: months.map(niceMonth), ...mt, series: [{ name: "Inside the range", color: cv("--s1"), values: months.map((m) => sw.by_month[m].coverage * 100) }], yfmt: (x) => `${x.toFixed(0)}%`, ydomain: [80, 100], ref: { y: 90, label: "target" }, endLabels: false, h: 200 });
@@ -705,7 +709,7 @@ async function accuracy() {
   if (v.stress_days) {
     const w = v.stress_days;
     b6.append(headline(`${w.wild.filter.median_bp.toFixed(2)} bp`, `typical miss on those days, against ${w.calm.filter.median_bp.toFixed(2)} bp on the rest`, chip("holds", "good")),
-      more("Against the alternatives", table([{ h: "", sr: "Days", f: (r) => r[0] }, { h: "Model", n: 1, f: (r) => r[1].filter.median_bp.toFixed(2) }, { h: "Last trade", n: 1, f: (r) => r[1].last.median_bp.toFixed(2) }, { h: "Yesterday", lo: 1, n: 1, f: (r) => r[1].prev_close.median_bp.toFixed(2) }, { h: "In range", n: 1, f: (r) => `${(r[2] * 100).toFixed(0)}%` }],
+      more("Against the alternatives", table([{ h: "", sr: "Days", f: (r) => r[0] }, { h: "Model", n: 1, f: (r) => r[1].filter.median_bp.toFixed(2) }, { h: "Last trade", n: 1, f: (r) => r[1].last.median_bp.toFixed(2) }, { h: "Yesterday", lo: 1, mid: 1, n: 1, f: (r) => r[1].prev_close.median_bp.toFixed(2) }, { h: "In range", n: 1, f: (r) => `${(r[2] * 100).toFixed(0)}%` }],
         [["Violent days", w.wild, w.coverage_wild], ["Other days", w.calm, w.coverage_calm]], { scroll: false }),
         el("p", { class: "note", text: `Typical miss in basis points. Largest moves: ${w.largest_moves.map((m) => `${nice(m.day)} (${m.ten_year_move_bp.toFixed(1)} bp)`).join(", ")}.` })));
   }
@@ -766,7 +770,7 @@ async function data() {
   const kp = el("div", { class: "kpis" }, kpi("Daily files", num(d.stats.files), `${nice(d.stats.first_day)} to ${nice(d.stats.last_day)}`), kpi("Reports read", num(life.reports), "every dollar swap and option report"),
     kpi("Real trades", num(life.trades), `${num(life.cancelled)} cancelled, ${num(life.corrected)} amended`), kpi(term("Clean swap prices", "clean"), num(clean.remaining), `${clean.share_of_start.toFixed(1)}% of dollar swaps`));
   const fall = (rows) => { const top = rows[0].remaining; return table([{ h: "Step", wrap: 1, f: (r) => r.step.replace("less: ", "Remove: ") }, { h: "Removed", n: 1, f: (r) => (r.removed == null ? "" : num(r.removed)) }, { h: "Left", n: 1, f: (r) => num(r.remaining) },
-    { h: "", lo: 1, f: (r) => { const b = el("div", { class: "fill" }); b.style.width = `${Math.max(2, r.remaining / top * 170)}px`; return b; } }], rows, { scroll: false }); };
+    { h: "", lo: 1, f: (r) => { const b = el("div", { class: "fill" }); b.style.width = `${Math.max(2, r.remaining / top * 130)}px`; return b; } }], rows, { scroll: false }); };
   const [c1, b1] = card("Why a swap is not used as a price", "Each trade is counted once, under the first rule it fails, so the column adds up.", "c6"); b1.append(fall(d.swap_waterfall));
   const [c2, b2] = card("Why an option is not used", null, "c6"); b2.append(fall(d.option_waterfall));
   const [c3, b3] = card("Month by month", "A sudden jump in any column means the source changed, not the market. This table once exposed a silent change in the file format.", "c7");

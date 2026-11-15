@@ -1,7 +1,7 @@
 """Render every screen in a real browser and check its layout.
 
 Each of the twelve screens is opened at desktop width, at phone width and in
-the dark theme (39 renders). For each one the page is checked for: sideways
+the dark theme, plus a 1280 px laptop width (51 renders). For each one the page is checked for: sideways
 page scrolling, chart text outside its card, chart labels that overlap, cards
 wider than the screen, charts that did not draw, and errors in the browser
 console. Desktop and dark renders are also run through axe-core, the standard
@@ -51,6 +51,7 @@ AXE_RUN = """async () => { const r = await axe.run(document, {runOnly: ['wcag2a'
   return r.violations.map(v => v.id + ' (' + v.impact + ', ' + v.nodes.length + ' places)'); }"""
 READY = "() => { const v = document.querySelector('#view'); return v && v.querySelector('.card, .kpis') && !/^Loading|Running the model|Pricing…/.test(v.innerText.trim()); }"
 SETS = [("desktop", {"viewport": {"width": 1440, "height": 1000}}, ROUTES),
+        ("laptop", {"viewport": {"width": 1280, "height": 800}}, ROUTES),
         ("phone", {"viewport": {"width": 375, "height": 812}, "device_scale_factor": 2, "is_mobile": True, "has_touch": True}, ROUTES),
         ("dark", {"viewport": {"width": 1440, "height": 1000}, "color_scheme": "dark"}, ROUTES),
         ("dark-phone", {"viewport": {"width": 375, "height": 812}, "device_scale_factor": 2, "is_mobile": True, "has_touch": True, "color_scheme": "dark"}, ["today", "price", "accuracy"])]
