@@ -72,6 +72,9 @@ def usd_sofr_swaps(trades: pd.DataFrame) -> pd.DataFrame:
     # the first rule it fails, so exclusions add up and can be audited.
     out["exclusion"] = _first_failed(out, SWAP_RULES)
     out["standard"] = out["exclusion"] == ""
+    # "Plain": passes every rule except the two about the start date. A plain
+    # forward-starting swap is a usable price for a forward rate.
+    out["plain"] = _first_failed(out, SWAP_RULES[2:]) == ""
     return out.sort_values("exec_ts").reset_index(drop=True)
 
 

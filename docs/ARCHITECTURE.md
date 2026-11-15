@@ -6,17 +6,21 @@ choices are in [adr/](adr/README.md).
 
 ## 1. Context
 
-Tapemark is a daily batch system. It reads public files, writes local tables
-and reports, and has no users writing into it.
+Tapemark is a daily batch pipeline plus a small web service. The pipeline
+reads public files and writes local tables, model results and reports. The
+service reads those results, prices trades on request, stores saved trades and
+notes, and follows a public live ticker.
 
 ```mermaid
 flowchart LR
     DTCC[DTCC public trade reports<br/>one zip per day] --> T
     ERIS[Eris end-of-day SOFR curve<br/>two csv files per day] --> T
     T[Tapemark]
-    T --> R[Data quality report]
-    T --> S[Model scorecards<br/>planned]
-    T --> A[App screens<br/>planned]
+    FED[Federal Reserve<br/>Treasury curve, SOFR] --> T
+    TICK[DTCC public ticker<br/>polled every 45 s] --> T
+    T --> R[Data quality and model validation reports]
+    T --> A[Web app: eleven screens]
+    U[Trader or analyst] <--> A
     REF[Reference libraries<br/>QuantLib, rateslib] -. used only in tests .-> T
 ```
 
@@ -30,7 +34,9 @@ from the one before it; only `raw` cannot be recreated once a source closes.
 | Raw | `data/raw/` | Files exactly as downloaded | No: this is the archive |
 | Stage | `data/stage/` | One table per day: dollar swaps and options, needed columns only, plus all corrections | Yes |
 | Clean | `data/clean/` | One row per real trade, typed and labelled, with an exclusion reason | Yes |
-| Reports | `data/reports/` | Data quality report; later, model scorecards | Yes |
+| Results | `data/results/` | Per-trade predictions, curve snapshots, option volatilities, summaries | Yes |
+| Reports | `data/reports/` | Data quality report and model validation report | Yes |
+| Saved items | `data/app.db` | Saved trades and notes on days, written by the app | No: user data |
 
 ## 3. Data flow
 
@@ -50,8 +56,16 @@ flowchart TD
     OP --> RPT
     RAW -->|Eris par rates| RPT
     RPT --> OUT[(data/reports/data_quality.md)]
-    SW -.-> PR[Pricing and scoring<br/>stages 1 to 7, planned]
-    OP -.-> PR
+    SW -->|curve filter, one trade at a time| SC[(results/swap_scores, curve_snapshots)]
+    SC -->|forward-starting swaps priced, never fitted| FW[(results/swap_forward_scores)]
+    OP -->|forward rate and annuity from the curve as of each trade| OV[(results/option_vols, option_scores)]
+    SC -->|hedge and revalue next day on the outside curve| HT[(results/hedge_test)]
+    SC --> VAL[validation: referee, residuals, sensitivity, worst days, speed]
+    OV --> VAL
+    HT --> VAL
+    VAL --> VR[(data/reports/model_validation.md)]
+    SC --> API[web service]
+    OV --> API
 ```
 
 ## 4. Data model
@@ -118,7 +132,14 @@ erDiagram
 | Product cleaners | `tapemark.clean.swaps`, `tapemark.clean.swaptions` | Type fields, derive measures, assign one exclusion reason |
 | Report | `tapemark.report` | Summarise coverage, exclusions, outside agreement, unusual days |
 | Command line | `tapemark.cli` | `fetch`, `build`, `summary`, `audit`, `report` |
-| Pricing, curves, scoring | planned | Stages 1 to 7; pure functions with no file or network access |
+| Pricing | `tapemark.pricing.{calendar,curve,options,risk}` | Pure functions: business days, curve build, swap and option prices, risk by curve point. No files, no network |
+| Curve model | `tapemark.models.curve_filter` | Kalman filter over par rates; predicts each trade, then learns from it |
+| Scoring | `tapemark.scoring.{swaps,options,risk}` | Walk-forward predictions, baselines, significance, calibration, hedge test |
+| Validation | `tapemark.validation` | Gathers every check into one report with verdicts |
+| Other markets | `tapemark.markets`, `tapemark.sources.fed` | Other currencies, inflation swaps, Treasury curve, SOFR |
+| Research | `tapemark.insights` | Correlations, implied against realised volatility, rich/cheap screen, gap drivers |
+| Web service | `tapemark.server.{store,app}` | Read models, pricing endpoints, saved items, live feed |
+| Frontend | `web/` | Plain HTML, CSS and ES modules; hand-written SVG charts |
 
 ## 6. How it runs
 
@@ -134,7 +155,27 @@ flowchart LR
 - **Nightly:** a short window of real files is fetched and the whole pipeline runs end to end. This catches a changed file format or a moved URL within a day. The report is kept as a workflow artifact; data is not committed.
 - **Full history:** built locally, about 1.3 GB of raw files.
 
-## 7. Qualities the design protects
+## 7. The web service at run time
+
+```mermaid
+flowchart LR
+    B[Browser] -->|GET read models| API[FastAPI]
+    B -->|POST price a swap or option| API
+    B <-->|create, read, update, delete| API
+    API -->|server-sent events: new trades| B
+    API --> ST[Store: result tables in memory, loaded once at start]
+    API --> PR[Pricing functions]
+    API --> DB[(SQLite: saved trades, notes)]
+    POLL[Background task] -->|every 45 s| TICK[DTCC ticker]
+    POLL -->|clean, predict, update filter| API
+```
+
+- **Read models** are computed from tables loaded once at start (about 4 seconds). No request reads from disk except saved items.
+- **Pricing** is stateless: terms in, numbers out, on the curve of the chosen day.
+- **Saved items** are the only writes. A saved trade stores terms only and is repriced on every read, so it cannot go stale.
+- **Live rows** are held in memory and never written to the data folders.
+
+## 8. Qualities the design protects
 
 | Quality | How |
 |---|---|

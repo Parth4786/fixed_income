@@ -5,6 +5,85 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-15
+
+### Added
+- Swap futures engine (`pricing/eris_futures.py`, `futures.py`): cash flows, value to come (A), amounts paid (B) and the daily interest-on-margin step (C) of Eris SOFR swap futures, checked against the exchange's settlement file for every listed contract on 60 days.
+- Margin rule fitted to published exchange margins on six years of daily curves; margin today and discounted margin-years for a swap and for the equivalent futures. "Swap or future?" card on Price a trade with a funding spread the user sets.
+- Order flow studies (`flow.py`): a two-stream self-exciting model of trade arrivals in one-second steps around consumer price and jobs releases; trade direction inferred from the fair rate, with flow regressed on the move in the same and the next ten minutes; a test of late-day drift after large moves.
+- Eris sources: settlement files and the historical par curve since October 2020.
+- Charts draw at the real width of their card and redraw when it changes; ranked rows replace a bar chart whose names could not fit.
+- 16 tests: estimator recovery on sequences with known triggering, the baseline trap, futures conventions worked by hand, margin and API checks.
+
+- Option checks against the exchange (`futures.check_options`): the normal-model pricer against every settled option price on Eris swap futures, and the project's volatility grid against the exchange's at-the-money volatility.
+- Margin backtest (`eris_futures.coverage`): for every day after the first 500, the margin set from the past alone is compared with the move that followed. The exchange's marketing claim that futures margin is "up to 65% lower" is quoted as context and is not used in any calculation.
+- `tools/render_screens.py`: renders all twelve screens at desktop, phone and dark settings in a real browser, audits the layout and saves images.
+- Tables drop their lower-priority columns on a phone, and the correlation grid switches to numbered rows and columns with values in hundredths; no table scrolls sideways at phone width.
+- Accessibility: the screen check runs axe-core on every screen in both themes. Six kinds of problem were found and fixed: text contrast below 4.5:1 (caption grey, warning chips, the active menu item, numbers on coloured cells, button text in the dark theme), charts with no text name, table columns with no header, links marked only by colour, scroll areas unreachable by keyboard, and a skipped heading level. Values resting on few trades are now marked with a dotted underline instead of being faded.
+- Swap margin low end follows the published structure of the clearing house's model: five days, past moves rescaled to current volatility, with an unscaled floor (`eris_futures.worst_moves_scaled`).
+- Model lab leaves a thin day out of its chart and names it; its runs are kept, and the default one is prepared at startup (7.4 s down to under 0.5 s on first open).
+- Frontend reworked after an independent design review of the rendered screens (15 findings, ADR 22): every card leads with one number and a verdict, with tables behind a closed details element; Price a trade opens with four numbers; Trades lists clean trades first, separates "off-market terms" from "unusual", and shows only comparable rows in the live feed; one name, colour and number format per idea across screens; month-based time axes; forwards drawn as points; four null results gathered in one table.
+- The screen check records time to content per screen: median 0.26 s, slowest 0.7 s.
+
+### Fixed
+- Swap rate minus Treasury yield compared a current swap rate with a Treasury curve up to a week old, which produced a false jump at the end of the chart and a wrong headline figure (-15.2 bp instead of -41.3 bp). Both rates now come from the same day, and nothing is carried forward.
+- `scikit-learn` was used but not declared as a dependency, so `score` failed on a clean install.
+- `score` crashed on histories shorter than about 240 trading days (the curve-forecast study); it now reports that it needs more history.
+- A date calculation used a form numpy has deprecated and will reject in a later version.
+- The live feed showed a full date and time; the fix had been applied to a different table.
+- Charts drawn a moment after the page is built were erasing the notes placed under them in the same card (a regression from drawing charts at their card's real width). Each chart now has a container of its own.
+
+### Changed
+- `docs/LITERATURE.md`: every reference checked against a publisher, DOI or RePEc record. Corrected: Bailey et al. is 2017 (*Journal of Computational Finance*); Angelopoulos and Bates is a preprint; Giles and Glasserman describes the adjoint form, not the forward form used here; SR 11-7 was replaced by SR 26-2 in April 2026. One entry is marked as not confirmed.
+- The Data quality screen's audit is built once and kept (2.5 s down to under 0.1 s on later visits).
+- Number fields accept any value; the option form no longer rejects its own default.
+- Bar and axis labels are placed by available width and never overlap; long series names no longer clip.
+
+### Findings recorded
+- Futures engine against the exchange: value to come within $0.27 a contract at worst, amounts paid within $0.01, risk within 0.1% (median).
+- Best margin rule: a two-day move at 99%, within 12.5% of the published margin for the typical contract. Five days at the same confidence gives 1.47 times as much.
+- Share of trading triggered by earlier trades: 0.23 (release mornings), 0.30 (other mornings), 0.24 (mid-morning). With a flat baseline release mornings read 0.56.
+- Net paying flow of $1bn of ten-year equivalents goes with a 1.07 bp rise in the same ten minutes and does not predict the next ten.
+- No late-day drift: on 39 days with a move of 8 bp or more by 2 pm, 46% continued.
+- Option pricer against the exchange: 100% of 89,014 settled option prices reproduced within one price step.
+- Margin backtest on 1,025 later days (Oct 2022 to Nov 2026): the futures rule covered 99.13% of moves and the swap rule 99.44%, against the regulatory standard of 99%. Weakest year 2022, at 98.89%.
+- Rescaling history to current volatility fits the published futures margins no better (13.6% typical miss against 12.5%) and leaves the 10-year swap figure unchanged today, because current volatility is close to its six-year norm.
+- All 47 release days in the calendar match the dated links in the Bureau of Labor Statistics archive.
+- Volatility grid against the exchange at option lives up to four months: typically 6.9 bp away and 5.4 bp higher; correlation of daily changes is about zero. The grid is a guide to the level, not a daily mark.
+
+## [0.2.0] - 2026-11-15
+
+### Added
+- Hull-White one-factor rate model (`pricing/hullwhite.py`): closed-form swap-rate volatility, checked against the model's exact price by numerical integration; calibrated daily to earlier trades and scored walk-forward beside the other option predictors.
+- Bias audit in the validation pack: a causality test for look-ahead, separate scoring of amended and late-published trades, the model's miss on each group of excluded trades, and the share of repeated rows collapsed.
+- Model lab screen and `POST /api/lab`: rerun the curve model on recent real trades with other settings.
+- Phone-width layout and dark theme verified on every screen.
+- Two published models replicated on the data: an execution-cost regression with errors clustered by day plus the Roll effective spread, and the Diebold-Li yield curve forecast against a random walk.
+- `docs/LITERATURE.md`: the published source behind each method and what this data showed.
+- Pricing library from first principles: bond-market calendar, discount curve with closed-form bootstrap, swap pricing, normal-model option pricing, SABR normal volatility.
+- Curve model: a Kalman filter that updates the whole curve with each trade, with damping of absurd trades.
+- Walk-forward scoring of swaps against three baselines, a Diebold-Mariano significance test, and conformally calibrated uncertainty bands.
+- Fully held-out test on forward-starting swaps.
+- Option scoring: implied volatility from real premiums, five predictors compared out of sample.
+- Risk by curve point by bump-and-rebuild and by forward-mode automatic differentiation; value-change explanation; scenario repricing.
+- Hedge test on real trades with next-day revaluation on an independent curve.
+- Validation pack: referee checks, residual diagnostics, sensitivity to settings, block stability, worst-day analysis, speed benchmarks.
+- Other markets: overnight-index swap curves in seven currencies and US inflation swaps from the same files; Treasury curve and SOFR from the Federal Reserve.
+- Research patterns: rich/cheap screen, cross-market correlations, implied against realised volatility, time-of-day effects, a gradient-boosted model of the gap to fair.
+- Web service (FastAPI) with read models, pricing endpoints, create/read/update/delete for saved trades and day notes, and a live feed from the public ticker pushed by server-sent events.
+- Frontend: eleven screens with plain-language summaries, hover definitions, light and dark themes.
+- `tapemark score` and `tapemark serve` commands; RUNBOOK.md; docs/VALIDATION.md.
+- 44 more tests, including QuantLib comparison and end-to-end tests of the web service.
+
+### Findings recorded
+- "Call" in the public data means the right to pay fixed.
+- For swap options the last similar trade predicts better than a fitted volatility surface; the app uses it.
+- Premiums reported on package legs are not standalone prices (about 80 bp of volatility away from any model).
+- One execution is sometimes published as several identical rows (1.1% of prints); they are collapsed before scoring.
+- A one-factor Hull-White model cannot fit the traded volatility surface: it misses by about 16 bp of volatility against 4 for the last similar trade, and its pull-back speed sits at the edge of its range on 61% of days.
+
+## [0.1.1] - 2026-11-14
+
 ### Added
 - Month-by-month data audit (`tapemark audit`): coverage, share of clean trades, and agreement with an outside curve.
 - Parallel, resumable history download (`tapemark fetch --workers`), including weekend trade files and the Eris archive folders.

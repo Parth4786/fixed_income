@@ -72,6 +72,15 @@ chosen on the first part of the history and then frozen for the rest.
 | Too many attempts | Trying many models and reporting the best | Metrics and baselines fixed in advance; all variants reported |
 | Short history | Public record starts November 2024 | Stated with every result; no claim beyond that period |
 
+## The controls are tested, not just stated
+
+`validation.bias_audit` checks them on the data:
+
+- **Look-ahead:** predictions for 40,000 trades are computed twice, with and without the later trades present, and must be identical.
+- **Hindsight:** trades amended after the fact, and trades published a day or more late, are scored separately.
+- **Selection:** the model is run on each group of excluded trades (packages, side payments, non-standard terms) and the miss is published.
+- **Survivorship:** the number of cancelled trades removed is reported; the stored history is the corrected record, and that is stated as a limit.
+
 ## Checks before any model is trusted
 
 1. Formulas match hand-worked cases.

@@ -163,6 +163,35 @@ def cmd_report(args) -> None:
     print(f"saved to {REPORTS / 'data_quality.md'}")
 
 
+def cmd_score(args) -> None:
+    """Run every model against the clean tables and write results for the app."""
+    from tapemark import flow, futures, insights, markets, validation
+    from tapemark.scoring import options, risk, swaps
+    from tapemark.sources import fed
+
+    steps = [("swap curve filter, walk-forward", swaps.score_spot), ("forward-starting swaps, held out", swaps.score_forwards), ("swap summary", swaps.summarise),
+             ("option volatilities", options.implied_vols), ("option predictions, walk-forward", options.score), ("option summary", options.summarise),
+             ("hedge test on real trades", risk.hedge_test), ("risk summary", risk.summarise), ("other currencies and inflation", markets.build),
+             ("Treasury curve", fed.fetch_treasury_curve), ("SOFR history", fed.fetch_sofr), ("validation pack", validation.run), ("patterns in the data", insights.run),
+             ("order flow: clustering, signed flow, late-day drift", flow.run), ("swap futures against the exchange", futures.run)]
+    for name, fn in steps:
+        print(f"... {name}", flush=True)
+        try:
+            fn()
+        except Exception as exc:
+            if name in ("Treasury curve", "SOFR history", "swap futures against the exchange"):  # optional outside sources
+                print(f"    skipped: {exc!r}"[:160])
+            else:
+                raise
+    print("done. Start the app with: python -m tapemark serve")
+
+
+def cmd_serve(args) -> None:
+    import uvicorn
+
+    uvicorn.run("tapemark.server.app:app", host=args.host, port=args.port, reload=False)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="tapemark")
     sub = p.add_subparsers(required=True)
@@ -175,6 +204,11 @@ def main() -> None:
     sub.add_parser("summary", help="print what is in the clean tables").set_defaults(func=cmd_summary)
     sub.add_parser("audit", help="month-by-month coverage and agreement with an outside curve").set_defaults(func=cmd_audit)
     sub.add_parser("report", help="write the one-page data quality report").set_defaults(func=cmd_report)
+    sub.add_parser("score", help="run all models walk-forward and write results").set_defaults(func=cmd_score)
+    sv = sub.add_parser("serve", help="start the web app")
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8765)
+    sv.set_defaults(func=cmd_serve)
     args = p.parse_args()
     args.func(args)
 

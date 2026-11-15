@@ -15,3 +15,14 @@ One file per decision. A decision is never edited after it is accepted; it is su
 | 9 | [Every excluded trade carries exactly one reason](0009-every-excluded-trade-carries-exactly-one-reason.md) | Accepted |
 | 10 | [Outcomes are summarised by median and tail, not mean](0010-outcomes-are-summarised-by-median-and-tail-not-mean.md) | Accepted |
 | 11 | [Coded fields are read without regard to letter case](0011-coded-fields-are-read-without-regard-to-letter-case.md) | Accepted |
+| 12 | [The curve is a filter updated by every trade](0012-the-curve-is-a-filter-updated-by-every-trade.md) | Accepted |
+| 13 | [Uncertainty bands are calibrated on past errors](0013-uncertainty-bands-are-calibrated-on-past-errors.md) | Accepted |
+| 14 | [Surprising trades are damped, not dropped](0014-surprising-trades-are-damped-not-dropped.md) | Accepted |
+| 15 | [The simplest option predictor is used because it won](0015-the-simplest-option-predictor-is-used-because-it-won.md) | Accepted |
+| 16 | [Risk is computed two ways and must agree](0016-risk-is-computed-two-ways-and-must-agree.md) | Accepted |
+| 17 | [The frontend has no build step](0017-the-frontend-has-no-build-step.md) | Accepted |
+| 18 | [Live data is polled and never stored](0018-live-data-is-polled-and-never-stored.md) | Accepted |
+| 19 | [A one-factor rate model is kept as a measured negative result](0019-a-one-factor-rate-model-is-kept-as-a-measured-negative-result.md) | Accepted |
+| 20 | [Trade clustering is measured against the hour's usual course](0020-trade-clustering-is-measured-against-the-hours-usual-course.md) | Accepted |
+| 21 | [The futures engine and the margin rule are checked against what the exchange publishes](0021-the-futures-engine-and-margin-rule-are-fitted-to-what-the-exchange-publishes.md) | Accepted |
+| 22 | [Every card leads with one number, and the screens are checked by machine](0022-every-card-leads-with-one-number-and-the-screens-are-checked-by-machine.md) | Accepted |

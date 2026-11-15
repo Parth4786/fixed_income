@@ -39,6 +39,37 @@ Pure functions: lifecycle-cleaned trades in, typed table out. Rows whose
 essential fields cannot be parsed are dropped. Every remaining row gets
 exactly one `exclusion` value: the first rule it fails, or blank.
 
+### `tapemark.pricing`
+
+| Function | Contract |
+|---|---|
+| `calendar.add_business_days(dates, n)` | Shift by business days on the US bond market calendar |
+| `curve.Curve.from_par(asof, tenors, rates)` | Closed-form bootstrap from spot par rates; reprices its inputs to 1e-9 |
+| `curve.par_rate(curve, effective, maturity)` | Fair fixed rate in percent; vectorised over swaps |
+| `curve.payer_value(...)` | Value of paying fixed; zero at the par rate |
+| `options.bachelier / implied_vol / vega` | Normal-model price, its inverse, and sensitivity to volatility |
+| `risk.bucket_dv01_ad / bucket_dv01_bump` | Risk to each input rate; the two agree to 1e-4 |
+| `risk.explain(...)` | time + rates + rest == total, exactly |
+| `risk.stress(...)` | Full repricing under named scenarios |
+
+### `tapemark.models.curve_filter`
+
+`CurveFilter.update(tenor, rate) -> Step(prediction, sd, gap, damped)`.
+The prediction is made from the state before the trade; the state is then
+updated. `advance(days)` grows uncertainty between trades.
+
+### `tapemark.server`
+
+| Route | Purpose |
+|---|---|
+| `GET /api/overview, /curve, /history, /tape, /flow, /vol, /markets, /insights, /scorecard, /quality` | Read models for the screens |
+| `POST /api/price/swap, /api/price/option` | Price terms on a chosen day; 422 on malformed terms |
+| `GET, POST /api/blotter` · `PUT, DELETE /api/blotter/{id}` | Saved trades; 404 on unknown id |
+| `GET, POST /api/notes` · `PUT, DELETE /api/notes/{id}` | Notes on days |
+| `GET /api/live` · `GET /api/live/stream` · `POST /api/live/{on,off}` | Live feed state, push stream, pause and resume |
+
+Responses never contain non-finite numbers; they are sent as null.
+
 ## 2. Tables
 
 ### `clean/usd_sofr_swaps.parquet`
@@ -118,6 +149,17 @@ exactly one `exclusion` value: the first rule it fails, or blank.
 | Unreadable daily file | Skipped and recorded; count shown in build stats |
 | Empty clean set | Commands exit with a message saying what to run first |
 
+### Result tables (`data/results/`)
+
+| Table | One row per | Key columns |
+|---|---|---|
+| `swap_scores` | clean spot execution | `filter`, `filter_sd`, `last`, `prev_close`, `same_close`, `band_mult`, `in_band`, `damped`, `scored` |
+| `curve_snapshots` | ten-minute mark with trading | `ts`, par rate at each of 14 lengths, as known before that moment |
+| `swap_forward_scores` | plain forward-starting swap | `filter`, `prev_close`, `same_close` |
+| `option_vols` | usable option trade | `forward_pct`, `annuity`, `vol_bp`, `vega`, `moneyness_bp`, `valid` |
+| `option_scores` | valid option trade | `flat`, `last`, `surface`, `smile`, `anchored` |
+| `hedge_test` | sampled real trade | `unhedged_bp`, `single_hedge_bp`, `bucket_hedge_bp`, `time_bp`, `rates_bp`, `rest_bp` |
+
 ## 5. Testing
 
 | Kind | Where | What it protects |
@@ -126,7 +168,9 @@ exactly one `exclusion` value: the first rule it fails, or blank.
 | Labelling tests | `tests/test_swaps.py` | Number parsing, business-day start, capped size |
 | Exclusion tests | `tests/test_exclusions.py` | Every rule reachable; one reason per row; waterfall adds up; unusual-day flag |
 | End to end | nightly workflow | Real files still download and parse |
-| Reference tests | planned, stage 1 on | Prices match an independent library |
+| Pricing tests | `tests/test_pricing.py` | Hand calculation, identities, QuantLib, holiday calendar against the days real data went quiet |
+| Risk and model tests | `tests/test_risk.py` | Automatic differentiation equals bump-and-rebuild; explanation adds up; filter moves toward trades and damps absurd ones |
+| Service tests | `tests/test_api.py` | Every route; a swap at fair is worth nothing; paying and receiving mirror; create, read, update, delete; bad input rejected |
 
 Tests use hand-built rows with the real column names, so they are fast and
 need no network. They are fixtures for code correctness, not model inputs:
