@@ -7,3 +7,6 @@ __pycache__/
 
 # Personal study notes, not part of the public project
 notes/
+
+# Local assistant skills (third-party, not part of the project)
+.claude/skills/
