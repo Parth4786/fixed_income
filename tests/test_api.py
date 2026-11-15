@@ -21,7 +21,7 @@ def client(tmp_path_factory):
 
 
 @pytest.mark.parametrize("path", ["/api/health", "/api/days", "/api/overview", "/api/curve", "/api/history", "/api/tape?limit=5", "/api/flow",
-                                  "/api/vol", "/api/scorecard", "/api/quality", "/api/markets", "/api/live", "/"])
+                                  "/api/vol", "/api/scorecard", "/api/quality", "/api/markets", "/api/live", "/api/monitor", "/api/governance", "/"])
 def test_read_routes_answer(client, path):
     assert client.get(path).status_code == 200
 
@@ -127,3 +127,23 @@ def test_option_has_bermudan_block(client):
         pytest.skip("no Hull-White calibration in this data")
     assert b["bermudan"]["pde"] >= b["european"]["exact"] * 0.999
     assert abs(b["european"]["pde"] - b["european"]["exact"]) < 1e-3 * b["european"]["exact"]
+
+
+def test_greeks_are_consistent(client):
+    pay = client.post("/api/price/swap", json={"years": 10, "notional": 1e8, "pay_fixed": True}).json()
+    rec = client.post("/api/price/swap", json={"years": 10, "notional": 1e8, "pay_fixed": False}).json()
+    g, h = pay["greeks"], rec["greeks"]
+    assert g["dv01_by_rebuild"] == pytest.approx(pay["dv01"], rel=1e-3)        # full rebuild agrees with automatic differentiation
+    assert h["gamma_per_bp2"] > 0 and g["gamma_per_bp2"] == pytest.approx(-h["gamma_per_bp2"])   # a receiver is long convexity
+    assert g["carry_3m"] == pytest.approx(-h["carry_3m"]) and g["breakeven_bp"] == pytest.approx(h["breakeven_bp"])
+    o = client.post("/api/price/option", json={"expiry_years": 1, "swap_years": 10}).json()
+    assert o["gamma_per_bp2"] > 0 and o["theta_per_day"] < 0                  # long an option: long gamma, pays theta
+
+
+def test_cap_floor_endpoint(client):
+    c = client.post("/api/price/cap", json={"years": 5}).json()
+    f = client.post("/api/price/cap", json={"years": 5, "floor": True}).json()
+    assert c["premium"] == pytest.approx(f["premium"], rel=1e-6)              # at the money: cap = floor
+    assert len(c["caplets"]) == 20 and c["vega_per_bp"] > 0 and "borrowed" in c["vol_source"]
+    mine = client.post("/api/price/cap", json={"years": 5, "vol_bp": 80}).json()
+    assert mine["vol_source"] == "your input" and mine["premium"] < client.post("/api/price/cap", json={"years": 5, "vol_bp": 120}).json()["premium"]

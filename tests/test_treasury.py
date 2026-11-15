@@ -53,3 +53,14 @@ def test_var_es_and_backtest():
     assert m["es975"] > 0 and m["var99"] > 0
     bt = tr.backtest(pnl)
     assert bt["days"] == 250 and bt["zone"] in ("green", "yellow")    # a stable world should rarely be red
+
+
+def test_kupiec_and_christoffersen_by_hand():
+    from tapemark import treasury as tr
+
+    ok = np.zeros(250, dtype=bool)
+    ok[[30, 90, 150]] = True                                    # 3 spread-out breaches in 250 days, about the 2.5 expected
+    assert tr.kupiec(ok)["p_value"] > 0.3 and tr.christoffersen(ok)["p_value"] > 0.3
+    many = np.zeros(250, dtype=bool)
+    many[:15] = True                                            # 15 breaches, all in a row
+    assert tr.kupiec(many)["p_value"] < 0.001 and tr.christoffersen(many)["p_value"] < 0.001

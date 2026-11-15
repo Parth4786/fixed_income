@@ -28,7 +28,7 @@ import time
 from playwright.sync_api import sync_playwright
 
 BASE = "http://127.0.0.1:8765/"
-ROUTES = ["overview", "guide", "today", "trades", "vol", "markets", "patterns", "price", "lab", "saved", "risk", "brief", "accuracy", "data"]
+ROUTES = ["overview", "guide", "today", "week", "rv", "trades", "vol", "markets", "patterns", "price", "lab", "saved", "risk", "brief", "accuracy", "governance", "data"]
 AUDIT = """() => {
   const iss = []; const vw = document.documentElement.clientWidth;
   if (document.documentElement.scrollWidth > vw + 1) iss.push('page scrolls sideways');

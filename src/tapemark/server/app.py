@@ -60,7 +60,7 @@ def db() -> sqlite3.Connection:
 
 
 class BlotterItem(BaseModel):
-    kind: str  # "swap" or "option"
+    kind: str  # "swap", "option" or "cap"
     label: str = ""
     terms: dict
     note: str = ""
@@ -142,7 +142,7 @@ async def lifespan(app: FastAPI):
     app.state.store = Store()
     app.state.live = Live(app.state.store)
     # Build the two slow results once in the background, so the first visit to those screens does not wait for them.
-    threading.Thread(target=lambda: (app.state.store.quality(), app.state.store.lab({}), app.state.store.fed_book(), app.state.store.engine_checks()), daemon=True).start()
+    threading.Thread(target=lambda: (app.state.store.quality(), app.state.store.lab({}), app.state.store.fed_book(), app.state.store.engine_checks(), app.state.store.governance(), app.state.store.relative_value()), daemon=True).start()
     task = asyncio.create_task(app.state.live.poll_forever())
     yield
     task.cancel()
@@ -264,6 +264,15 @@ def price_swap(q: dict):
         raise HTTPException(422, f"could not price this swap: {exc}") from exc
 
 
+@app.post("/api/price/cap")
+def price_cap(q: dict):
+    """A cap or floor on compounded SOFR, normal model with in-arrears variance (Lyashenko-Mercurio)."""
+    try:
+        return S().price_cap(q)
+    except Exception as exc:  # noqa: BLE001 - shown to the user
+        raise HTTPException(422, f"could not price this cap: {exc}") from exc
+
+
 @app.post("/api/price/option")
 def price_option(q: dict):
     try:
@@ -276,8 +285,10 @@ def price_option(q: dict):
 def _valued(row: sqlite3.Row) -> dict:
     item = dict(row) | {"terms": json.loads(row["terms"])}
     try:
-        priced = S().price_swap(item["terms"] | {"day": None}) if item["kind"] == "swap" else S().price_option(item["terms"] | {"day": None})
-        keys = ("fair_rate", "gap_bp", "value", "dv01", "verdict", "day") if item["kind"] == "swap" else ("model_premium", "vol_gap_bp", "verdict", "day", "forward_rate")
+        price = {"swap": S().price_swap, "option": S().price_option, "cap": S().price_cap}[item["kind"]]
+        priced = price(item["terms"] | {"day": None})
+        keys = {"swap": ("fair_rate", "gap_bp", "value", "dv01", "verdict", "day"), "option": ("model_premium", "vol_gap_bp", "verdict", "day", "forward_rate"),
+                "cap": ("premium", "premium_bp", "atm", "day")}[item["kind"]]
         item["now"] = {k: priced.get(k) for k in keys}
     except Exception as exc:
         item["now"] = {"error": str(exc)[:120]}
@@ -288,6 +299,24 @@ def _valued(row: sqlite3.Row) -> dict:
 def blotter_list():
     with closing(db()) as con:
         return [_valued(r) for r in con.execute("select * from blotter order by id desc")]
+
+
+@app.get("/api/rv")
+def relative_value():
+    """Where the curve is rich or cheap against itself, and how often such readings reverted before."""
+    return S().relative_value()
+
+
+@app.get("/api/week")
+def week(day: str | None = None):
+    """The week: curve moves, the Fed path now against a week ago, and what followed similar weeks since 2020."""
+    return S().week(day)
+
+
+@app.get("/api/governance")
+def governance_view():
+    """Live model monitoring, model inventory with evidence, and data lineage with SHA-256 hashes."""
+    return S().governance()
 
 
 @app.get("/api/monitor")
@@ -318,8 +347,8 @@ def book_risk(tier1: float | None = None):
 
 @app.post("/api/blotter", status_code=201)
 def blotter_create(item: BlotterItem):
-    if item.kind not in ("swap", "option"):
-        raise HTTPException(422, "kind must be 'swap' or 'option'")
+    if item.kind not in ("swap", "option", "cap"):
+        raise HTTPException(422, "kind must be 'swap', 'option' or 'cap'")
     with closing(db()) as con, con:
         cur = con.execute("insert into blotter (created, updated, kind, label, terms, note, status) values (?,?,?,?,?,?,?)",
                           (_now(), _now(), item.kind, item.label, json.dumps(item.terms), item.note, item.status))

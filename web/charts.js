@@ -104,13 +104,14 @@ export const line = (parent, o) => mount(parent, (host, W) => drawLine(host, o, 
    ydomain  [low, high] to fix the y-range, so a small wobble is not drawn as a large one
    a series with `markers: true` is drawn as labelled points with no connecting line: use it when the points are few and
    a line between them would suggest values that were never measured. */
-function drawLine(host, { series, labels, yfmt = (v) => v.toFixed(2), h = 230, xticks, xtext, ydomain, ref, dots, endLabels = true, zero = false }, W) {
+function drawLine(host, { series, labels, yfmt = (v) => v.toFixed(2), h = 230, xticks, xtext, ydomain, ref, dots, endLabels = true, zero = false, ylabel }, W) {
   host.replaceChildren();
   if (series.length > 1) host.append(legend(series));
   endLabels = endLabels && W >= 460;  // no room for labels at the line ends in a narrow card; the legend carries the names
-  const L = 50, T = 10, B = 24;
+  const L = 50, T = ylabel ? 24 : 10, B = 24;
   const R = Math.max(endLabels ? Math.min(160, 14 + 6.6 * Math.max(...series.map((x) => x.name.length))) : 14, ref?.label ? 12 + 6.6 * ref.label.length : 0);
   const svg = s("svg", { viewBox: `0 0 ${W} ${h}`, width: W, height: h, role: "img" }, null);
+  if (ylabel) txt(svg, 2, 11, ylabel, { "text-anchor": "start", class: "lab" });
   const vals = series.flatMap((x) => x.values).concat(dots ? dots.map((d) => d.y) : [], ref ? [ref.y] : [], zero ? [0] : []).filter((v) => v != null && isFinite(v));
   let lo = Math.min(...vals), hi = Math.max(...vals);
   const padY = (hi - lo || 1) * (series.some((x) => x.markers) ? 0.18 : 0.08); lo -= padY; hi += padY;   // labelled points need room
@@ -148,16 +149,18 @@ function drawLine(host, { series, labels, yfmt = (v) => v.toFixed(2), h = 230, x
       d += `${pen ? "L" : "M"}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`; pen = true; last = [i, v];
     });
     if (x.markers) {
-      let lastRight = -Infinity;                       // a value label is skipped if it would touch the previous one
-      x.values.forEach((v, i) => {
-        if (v == null || !isFinite(v)) return;
-        s("circle", { cx: X(i), cy: Y(v), r: 5, fill: x.color, stroke: cv("--surface"), "stroke-width": 2 }, svg);
+      // Every point is labelled, or none is (then each point carries its value on hover): never a scattered few.
+      const pos = x.values.map((v, i) => {
+        if (v == null || !isFinite(v)) return null;
         const label = yfmt(v), w = label.length * 6.2, anchor = i === 0 ? "start" : i === n - 1 ? "end" : "middle";
-        const left = anchor === "start" ? X(i) : anchor === "end" ? X(i) - w : X(i) - w / 2;
-        if (left < lastRight + 4) return;
-        txt(svg, X(i), Y(v) - 10, label, { "text-anchor": anchor, class: "lab" });
-        lastRight = left + w;
-      });
+        return { i, v, label, anchor, left: anchor === "start" ? X(i) : anchor === "end" ? X(i) - w : X(i) - w / 2, w };
+      }).filter(Boolean);
+      const fits = pos.every((p, k) => k === 0 || p.left >= pos[k - 1].left + pos[k - 1].w + 4);
+      for (const p of pos) {
+        const c = s("circle", { cx: X(p.i), cy: Y(p.v), r: 5, fill: x.color, stroke: cv("--surface"), "stroke-width": 2 }, svg);
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "title"); t.textContent = `${labels[p.i]}: ${p.label}`; c.append(t);
+        if (fits) txt(svg, X(p.i), Y(p.v) - 10, p.label, { "text-anchor": p.anchor, class: "lab" });
+      }
     } else s("path", { d, fill: "none", stroke: x.color, "stroke-width": 2, "stroke-dasharray": x.dash ? "5 4" : null, "stroke-linejoin": "round" }, svg);
     if (last && endLabels) ends.push({ y: Y(last[1]), name: x.name, x: X(last[0]) });
   }
@@ -189,10 +192,10 @@ function drawLine(host, { series, labels, yfmt = (v) => v.toFixed(2), h = 230, x
 /* Vertical bars. series: [{name, color, values}]; stacked or grouped; bySign colours one series by sign. */
 export const bars = (parent, o) => mount(parent, (host, W) => drawBars(host, o, W));
 /* catColors gives each category its own colour (one series only), to single one bar out from the rest. */
-function drawBars(host, { cats, series, yfmt = (v) => v.toFixed(1), h = 220, stacked = false, bySign = false, valueLabels = false, catColors }, W) {
+function drawBars(host, { cats, series, yfmt = (v) => v.toFixed(1), h = 220, stacked = false, bySign = false, valueLabels = false, catColors, ylabel }, W) {
   host.replaceChildren();
   if (series.length > 1) host.append(legend(series.map((x) => ({ ...x, box: true }))));
-  const T = 14, R = 10;
+  const T = ylabel ? 26 : 14, R = 10;
   // Room on the left for the longest axis label, so values like "+$500.0bn" stay inside the card.
   const allVals = series.flatMap((x) => x.values).filter((v) => v != null);
   const L = Math.max(50, 10 + 6.4 * Math.max(...[Math.min(...allVals, 0), Math.max(...allVals, 0)].map((v) => yfmt(v).length)));
@@ -209,6 +212,7 @@ function drawBars(host, { cats, series, yfmt = (v) => v.toFixed(1), h = 220, sta
   const fits = wrapped.every((ls) => ls.length <= 3 && ls.every((l) => l.length <= perLine));  // otherwise every n-th name is shown
   const B = 14 + 13 * (fits ? Math.max(...wrapped.map((ls) => ls.length)) : 1);
   const svg = s("svg", { viewBox: `0 0 ${W} ${h}`, width: W, height: h, role: "img" }, null);
+  if (ylabel) txt(svg, 2, 11, ylabel, { "text-anchor": "start", class: "lab" });
   const totals = cats.map((_, i) => series.reduce((a, x) => a + Math.max(x.values[i] || 0, 0), 0));
   const all = stacked ? totals.concat([0]) : series.flatMap((x) => x.values).concat([0]).filter((v) => v != null);
   let lo = Math.min(...all), hi = Math.max(...all);
@@ -259,10 +263,11 @@ function drawBars(host, { cats, series, yfmt = (v) => v.toFixed(1), h = 220, sta
 
 /* Scatter with one series. points: [{x, y, title, rows}]. xlog spaces x by log. */
 export const scatter = (parent, o) => mount(parent, (host, W) => drawScatter(host, o, W));
-function drawScatter(host, { points, xfmt, yfmt, xlog = false, h = 250, xlabel, color }, W) {
+function drawScatter(host, { points, xfmt, yfmt, xlog = false, h = 250, xlabel, color, ylabel }, W) {
   host.replaceChildren();
-  const L = 50, R = 14, T = 10, B = 38;
+  const L = 50, R = 14, T = ylabel ? 24 : 10, B = 38;
   const svg = s("svg", { viewBox: `0 0 ${W} ${h}`, width: W, height: h, role: "img" }, null);
+  if (ylabel) txt(svg, 2, 11, ylabel, { "text-anchor": "start", class: "lab" });
   const fx = (v) => (xlog ? Math.log(v) : v);
   const xs = points.map((p) => fx(p.x)), ys = points.map((p) => p.y);
   const x0 = Math.min(...xs), x1 = Math.max(...xs);
@@ -275,7 +280,7 @@ function drawScatter(host, { points, xfmt, yfmt, xlog = false, h = 250, xlabel, 
   if (xlabel) txt(svg, W - R, h - 3, xlabel, { "text-anchor": "end" });
   const c = color || cv("--s1");
   for (const p of points) {
-    const dot = s("circle", { cx: X(p.x), cy: Y(p.y), r: 4, fill: c, "fill-opacity": 0.75, stroke: cv("--surface"), "stroke-width": 1.5 }, svg);
+    const dot = s("circle", { cx: X(p.x), cy: Y(p.y), r: 4, fill: p.color || c, "fill-opacity": 0.8, stroke: cv("--surface"), "stroke-width": 1.5 }, svg);
     const hit = s("circle", { cx: X(p.x), cy: Y(p.y), r: 12, fill: "transparent" }, svg);
     hit.addEventListener("pointermove", (evt) => { dot.setAttribute("r", 6); showTip(evt, p.title, p.rows); });
     hit.addEventListener("pointerleave", () => { dot.setAttribute("r", 4); hideTip(); });

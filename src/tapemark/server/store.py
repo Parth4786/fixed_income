@@ -13,13 +13,13 @@ import numpy as np
 import pandas as pd
 from scipy.special import ndtr
 
-from tapemark import treasury
+from tapemark import governance, rv, treasury, weekly
 from tapemark.clean.swaps import SWAP_RULES
 from tapemark.clean.swaptions import OPTION_RULES
 from tapemark.models import meeting_curve
 from tapemark.models.curve_filter import NODES
 from tapemark.paths import CLEAN, DATA
-from tapemark.pricing import bermudan, eris_futures, hullwhite, risk
+from tapemark.pricing import bermudan, caps, eris_futures, hullwhite, risk
 from tapemark.pricing import options as opt
 from tapemark.pricing.calendar import add_business_days
 from tapemark.pricing.curve import Curve, annuity_and_float, par_rate, payer_value, shift_months, shift_years, spot_start
@@ -264,6 +264,24 @@ class Store:
                               "miss_bp": grp["steps_bp"], "how": f"Same curve points, overnight rate changing only after Fed meetings; measured on forward swaps ({grp['steps_bp']:.2f} against {grp['smooth_bp']:.2f} bp)"})
         for m in models:
             m["your_gap_bp"] = _r((fixed - m["rate"]) * 100, 2)
+        # Second-order and time: gamma from a full rebuild of the curve 1 bp up and down; carry and roll-down over
+        # three months on an unchanged curve (par rates by length stay where they are).
+        v_up = float(payer_value(Curve.from_par(d, NODES, x + 0.01), start, end, fixed, notional)[0]) * sign
+        v_dn = float(payer_value(Curve.from_par(d, NODES, x - 0.01), start, end, fixed, notional)[0]) * sign
+        st1 = np.array([start])
+        months = int(round(tenor * 12))
+        three_m = float(par_rate(c, start, shift_months(st1, 3)[0])[0])
+        shorter = float(par_rate(c, start, shift_months(st1, months - 3)[0])[0]) if months > 3 else fair
+        # A receiver earns the fixed rate and pays the floating rate meanwhile: carry is that gap accrued for three
+        # months on the notional. Roll-down: after three months the swap is valued at the shorter point of an
+        # unchanged curve. Both are converted to bp of rate by the risk per bp, so they add up to the move in rates
+        # the position can absorb over three months before it loses: the breakeven.
+        per_bp = abs(float(dv.sum()))
+        carry = (fair - three_m) / 100 * notional * 0.25 * -sign
+        roll = (fair - shorter) * 100 * per_bp * -sign
+        greeks = {"gamma_per_bp2": v_up + v_dn - 2 * value, "dv01_by_rebuild": (v_up - v_dn) / 2,
+                  "carry_3m": carry, "roll_3m": roll, "carry_3m_bp": _r(carry / per_bp, 2), "roll_3m_bp": _r(roll / per_bp, 2),
+                  "breakeven_bp": _r(abs(carry + roll) / per_bp, 2), "earns_if_unchanged": carry + roll > 0}
         size = self.scores[self.scores["scored"]].tail(60000)
         cost = size.groupby(pd.cut(size["notional"], SIZE_EDGES, labels=SIZE_LABELS), observed=False)["gap_bp"].agg(lambda v: v.abs().median())
         return {
@@ -273,7 +291,7 @@ class Store:
             "value": value, "dv01": float(dv.sum()), "by_point": [{"length": float(t), "dv01": float(v)} for t, v in zip(NODES, dv, strict=True) if abs(v) > 0.5],
             "hedge": [{"length": f"{int(t)}y", "rate": _r(r, 4), "notional": float(-wi / hd), "action": "pay fixed" if -wi / hd > 0 else "receive fixed"}
                       for t, r, wi, hd in zip(hedges, h_rate, w, h_dv, strict=True) if abs(wi / hd) > 0.01 * notional],
-            "stress": stress, "explain": explain, "models": models, "length_group": label,
+            "stress": stress, "explain": explain, "models": models, "length_group": label, "greeks": greeks,
             "typical_gap_by_size_bp": [{"size": str(k), "bp": _r(v, 2)} for k, v in cost.items()],
             "clearing": self._clearing(c, d, tenor, notional) if abs(int((start - spot_start(d)).astype(int))) <= 3 else None,
         }
@@ -375,7 +393,10 @@ class Store:
                "vol": v, "model_premium": price * notional, "model_premium_bp": _r(price * 1e4, 1), "vol_band_bp": _r(vol_band, 1),
                "premium_low": float(opt.bachelier(fwd, strike, t_years, max(vol - vol_band / 1e4, 1e-5), ann, payer)) * notional,
                "premium_high": float(opt.bachelier(fwd, strike, t_years, vol + vol_band / 1e4, ann, payer)) * notional,
-               "rate_risk_per_bp": delta * notional * 1e-4, "vol_risk_per_bp": vega_bp * notional}
+               "rate_risk_per_bp": delta * notional * 1e-4, "vol_risk_per_bp": vega_bp * notional,
+               # Normal-model second order and time decay: gamma per (bp)^2 of the forward, theta per calendar day
+               "gamma_per_bp2": ann * float(np.exp(-0.5 * d1 * d1) / np.sqrt(2 * np.pi)) / sd * notional * 1e-8,
+               "theta_per_day": -ann * vol * float(np.exp(-0.5 * d1 * d1) / np.sqrt(2 * np.pi)) / (2 * np.sqrt(t_years)) * notional / 365.0}
         if hw_day:
             speed, sig, _ = hw[hw_day]
             try:
@@ -393,12 +414,44 @@ class Store:
                     ("inside the normal range" if abs(iv - vol) * 1e4 <= vol_band else "outside the normal range")}
         return out
 
+    def price_cap(self, q: dict) -> dict:
+        """A cap or floor on compounded SOFR. No free cap volatilities exist: by default the swap option surface's
+        volatility for 1-year swaps at about half the cap's life is borrowed, and the response says so."""
+        d = self.day(q.get("day"))
+        c = Curve.from_par(d, NODES, self.state(d))
+        start = spot_start(d)
+        years = float(q.get("years") or 5)
+        end = shift_months(np.array([start]), int(round(years * 12)))[0]
+        notional = float(q.get("notional") or 1e8)
+        atm = caps.atm_strike(c, start, end)                                  # cap = floor here; quarterly, so not the annual swap rate
+        strike = float(q["strike"]) / 100 if q.get("strike") not in (None, "") else atm
+        if q.get("vol_bp") not in (None, ""):
+            vol_bp, source = float(q["vol_bp"]), "your input"
+        else:
+            v = self._vol_for(d, max(years / 2, 0.25), 1.0)
+            vol_bp, source = (v["surface_bp"] or v["used_bp"] or 100.0), "borrowed from the swap option surface (1-year swaps)"
+        floor = bool(q.get("floor", False))
+        r = caps.cap_floor(c, start, end, strike, vol_bp / 1e4, notional, floor=floor)
+        return {"day": str(d), "start": str(start), "end": str(end), "years": years, "notional": notional, "floor": floor, "strike": _r(strike * 100, 4), "atm": _r(atm * 100, 4),
+                "vol_bp": _r(vol_bp, 1), "vol_source": source, "premium": r["price"], "premium_bp": _r(r["price"] / notional * 1e4, 1),
+                "delta_per_bp": r["delta_per_bp"], "vega_per_bp": r["vega_per_bp"], "caplets": r["caplets"],
+                "parity_swap": caps.swap_leg_value(c, start, end, strike, notional)}
+
     def vol(self, day=None) -> dict:
         d = self.day(day)
         g = self.vol_grids["days"].get(str(d))
         i = int(np.searchsorted(self.days, d))
         o = self.opts[(self.opts["trade_date"] > pd.Timestamp(self.days[max(i - 5, 0)])) & (self.opts["trade_date"] <= pd.Timestamp(d)) & ~self.opts["package"]]
+        def at_surface(t, w):
+            if not g:
+                return None
+            ie = int(np.argmin(np.abs(np.log(self.vol_grids["expiry"]) - np.log(max(t, 0.02)))))
+            it = int(np.argmin(np.abs(np.log(self.vol_grids["tenor"]) - np.log(max(w, 0.5)))))
+            v = g["vol"][ie][it]
+            return None if v is None or not np.isfinite(v) else float(v)
+
         pts = [{"day": str(r.trade_date.date()), "expiry_years": _r(r.option_years, 2), "swap_years": _r(r.swap_years, 1), "vol_bp": _r(r.vol_bp, 1),
+                "surface_bp": _r(at_surface(r.option_years, r.swap_years), 1),
                 "strike_gap_bp": _r(r.moneyness_bp, 0), "premium_bp": _r(r.premium_bp_of_notional, 1), "notional": float(r.notional), "payer": bool(r.payer)} for r in o.itertuples()]
         days = sorted(self.vol_grids["days"])
         ie, it = self.vol_grids["expiry"].index(1), self.vol_grids["tenor"].index(10)
@@ -516,6 +569,72 @@ class Store:
             except Exception as exc:  # noqa: BLE001 - optional data
                 self._fed_book = {"error": str(exc)[:160]}
         return self._fed_book
+
+    def relative_value(self) -> dict:
+        """PCA fair value by curve point and PCA-weighted butterflies on six years of daily SOFR swap curves (computed once)."""
+        if getattr(self, "_rv", None) is None:
+            try:
+                h = eris.par_history()
+                cols = [0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 7.0, 10.0, 12.0, 15.0, 20.0, 25.0, 30.0]
+                lv = h[cols] * (100 if h[cols].max().max() < 1 else 1)
+                self._rv = rv.relative_value(lv, ["3m", "6m", "1y", "2y", "3y", "4y", "5y", "7y", "10y", "12y", "15y", "20y", "25y", "30y"])
+            except Exception as exc:  # noqa: BLE001 - optional data
+                self._rv = {"error": str(exc)[:160]}
+        return self._rv
+
+    def week(self, day=None) -> dict:
+        """This week against last: curve moves, the Fed path then and now, and past weeks like this one."""
+        d = self.day(day)
+        i = int(np.searchsorted(self.days, d))
+        d0 = self.days[max(i - 5, 0)]
+        now, then = self.state(d), self.state(d0)
+        change = [{"length": lab, "bp": _r((now[j] - then[j]) * 100, 2)} for j, lab in enumerate(("3m", "6m", "1y", "2y", "3y", "4y", "5y", "7y", "10y", "12y", "15y", "20y", "25y", "30y"))]
+        p_now = meeting_curve.overnight_path(Curve.from_par(d, NODES, now), 1.5)
+        p_then = {x["from"]: x["rate_pct"] for x in meeting_curve.overnight_path(Curve.from_par(d0, NODES, then), 1.5)}
+        path = [{"from": x["from"], "now": x["rate_pct"], "week_ago": p_then.get(x["from"])} for x in p_now[1:]]
+        both = [x for x in path if x["week_ago"] is not None]
+        shift = _r((both[-1]["now"] - both[-1]["week_ago"]) * 100, 1) if both else None
+        h = eris.par_history() * (100 if eris.par_history().max().max() < 1 else 1)          # percent
+        idx = {t: int(np.argmin(np.abs(np.array(NODES) - t))) for t in (2, 10)}
+        mv = {"2y": (now[idx[2]] - then[idx[2]]) * 100, "10y": (now[idx[10]] - then[idx[10]]) * 100}
+        mv["2s10s"] = mv["10y"] - mv["2y"]
+        hist = {"2y": h[2.0] * 100, "10y": h[10.0] * 100, "2s10s": (h[10.0] - h[2.0]) * 100}
+        an = {k: weekly.analogs(hist[k], mv[k], floor=3.0 if k == "2s10s" else 5.0) for k in ("2y", "10y", "2s10s")}
+        return {"day": str(d), "from": str(d0), "change": change, "moves": {k: _r(v, 1) for k, v in mv.items()},
+                "path": path, "path_shift_bp": shift, "path_to": both[-1]["from"] if both else None, "analogs": an}
+
+    def governance(self) -> dict:
+        """Live monitoring, the model inventory with its evidence, and data lineage with file hashes."""
+        sw, op, rk = self.summary["swap_summary"], self.summary["option_summary"], self.summary["risk_summary"]
+        ev = {"curve": f"{sw['overall']['filter']['median_bp']:.2f} bp typical miss on {sw['overall']['filter']['n']:,} unseen trades, against {sw['overall']['last']['median_bp']:.2f} bp for the last trade (DM {abs(sw['filter_vs_last']['t_stat']):.1f})",
+              "band": f"{sw['coverage']['calibrated'] * 100:.1f}% of trades inside a 90% band",
+              "options": f"last similar trade misses by {op['standalone']['vol_bp']['last']['median']:.1f} bp of volatility; fitted surface {op['standalone']['vol_bp']['surface']['median']:.1f}",
+              "hedge": f"removed {rk['risk_removed_pct']['bucket_hedge']:.1f}% of next-day risk on {rk['trades']:,} real trades"}
+        try:
+            f = json.loads((RESULTS / "futures.json").read_text())
+            ev["futures"] = f"worst price error ${f['engine']['price']['max'] * 1000:.2f} per contract over {f['engine']['contract_days']:,} contract-days"
+            bt = f["margin"].get("backtest")
+            if bt:
+                ev["margin"] = f"swap margin covered {bt['swap_pct']:.1f}% of {bt['days']:,} later days against a {bt['target_pct']:.0f}% standard"
+        except Exception:  # noqa: BLE001 - optional result
+            pass
+        ec = self.engine_checks()
+        if not ec.get("error"):
+            ev["bermudan"] = f"PDE within {ec['pde_vs_exact']['max_rel_error_pct']}% of the exact price on {ec['pde_vs_exact']['days']} days; {round((max(x['bermudan_bp'] for x in ec['by_speed']) / min(x['bermudan_bp'] for x in ec['by_speed']) - 1) * 100)}% spread across mean reversion"
+        fb = self.fed_book()
+        if fb and not fb.get("error"):
+            ev["var"] = f"Fed book VaR backtest {fb['backtest']['zone']}: {fb['backtest']['exceptions']} exceptions in {fb['backtest']['days']} days"
+        mon = governance.monitoring(self.scores, self.quality()["monthly"])
+        worst = "red" if any(m["status"] == "red" for m in mon) else "amber" if any(m["status"] == "amber" for m in mon) else "green"
+        inv = governance.inventory(ev)
+        for m in inv:
+            m["status"] = worst if m["monitored"] else ("documented" if m["evidence"] else "no evidence")
+        if getattr(self, "_lineage", None) is None:
+            self._lineage = governance.lineage()
+        if getattr(self, "_forecast", None) is None:
+            self._forecast = governance.forecast_metrics(self.scores)
+        var_tests = fb.get("backtest") if fb and not fb.get("error") else None
+        return {"monitoring": mon, "overall": worst, "inventory": inv, "lineage": self._lineage, "forecast": self._forecast, "var_tests": var_tests}
 
     def monitor(self, day=None) -> dict:
         """Every curve point and the main spreads: level, changes, place in the year's range, roll-down and forward."""

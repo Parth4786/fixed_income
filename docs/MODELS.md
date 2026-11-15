@@ -235,7 +235,37 @@ A test checks this against the textbook form. A Bermudan payer may enter the rem
 
 **Assumes:** one factor; constant $a$ and $\sigma$, fitted to that day's option trades rather than to the co-terminal set a desk would use; single curve; exercise into the remaining annual fixed leg with the first date's lag.
 
-## 22. Scores
+## 22. Gamma, carry and roll-down, theta
+
+**Swap gamma.** The curve is rebuilt with every par rate 1 bp up and 1 bp down, and the trade is fully repriced: $\Gamma = V_{+} + V_{-} - 2V_0$, in dollars per (bp)$^2$. A test holds $(V_+ - V_-)/2$ to the automatic-differentiation DV01.
+
+**Carry and roll-down, three months, unchanged curve.** For a receiver of the $T$-year swap at fair rate $S_T$:
+
+$$\text{carry} = (S_T - S_{3m}) \times N \times 0.25, \qquad \text{roll-down} = (S_T - S_{T-3m}) \times \text{DV01}, \qquad \text{breakeven} = \frac{\text{carry} + \text{roll-down}}{\text{DV01}}$$
+
+$S_{3m}$ is the 3-month rate, $S_{T-3m}$ the rate of the swap three months shorter on today's curve. The breakeven is the rise in rates over three months that wipes out the carry and roll-down. A payer's signs are opposite.
+
+**Option gamma and theta (normal model).** With $d = (F-K)/(\sigma\sqrt{T})$ and annuity $A$: $\Gamma = A\,\varphi(d)/(\sigma\sqrt{T})$ per unit rate squared (times $10^{-8}$ per bp$^2$), and $\Theta = -A\,\sigma\,\varphi(d)/(2\sqrt{T})$ per year, shown per calendar day.
+
+**Assumes:** an unchanged curve means par rates at each length stay where they are; floating payments are approximated by the 3-month rate.
+
+## 23. Caps and floors on compounded SOFR
+
+A caplet pays $\alpha\,\max(R - K, 0)$ at the end of its quarter, where $R$ is SOFR compounded over the quarter, known only at the end. In the normal model (Lyashenko and Mercurio, 2019) the caplet is an option on the period's simple forward $F = (DF(t_s)/DF(t_e) - 1)/\alpha$ with effective variance time
+
+$$\tau = t_s^{+} + \frac{(t_e - t_s^{+})^3}{3\,(t_e - t_s)^2}, \qquad t_s^{+} = \max(t_s, 0)$$
+
+and value $\alpha\,DF(t_e)\,\text{Bachelier}(F, K, \tau, \sigma)$. At the money is the strike where cap and floor are equal, the rate of a swap on the cap's own quarterly periods (not the annual swap rate). **Checks:** cap minus floor equals that swap at the strike for any volatility. **Assumes:** one flat volatility; free data has no cap volatilities, so by default the swap option surface's value for 1-year swaps at half the cap's life is borrowed, and the screen says so.
+
+## 24. Relative value: PCA fair value and butterflies
+
+Each day $t$, the first three principal components $V$ (level, slope, curvature) of daily curve changes are estimated from days $t-250$ to $t-1$, and today's curve is projected around that window's mean $\mu$:
+
+$$e_t = (x_t - \mu) - V V^{\top} (x_t - \mu)$$
+
+$e_t$, in bp, is what the three moves cannot explain at each point. A butterfly with belly weight 1 has wing weights solving $w^{\top} V_{\cdot,1} = w^{\top} V_{\cdot,2} = 0$, also refitted daily. Each signal gets a z-score against its own past 250 days, an AR(1) half-life $\ln 0.5 / \ln \hat\varphi$, and a backtest of past readings beyond $\pm 2$ (one per episode): did the signal move back toward its mean within 20 days? **Measured on six years of Eris SOFR curves:** single points reverted 44 to 79% of the time; PCA-weighted flies 29 to 40%, so their extremes are trends, not reversion trades. **Assumes:** three components describe the curve's common moves; 250 days is the relevant past.
+
+## 25. Scores
 
 | Product | Score |
 |---|---|

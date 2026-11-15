@@ -109,13 +109,45 @@ def var_es(pnl: np.ndarray) -> dict:
     return {"var99": float(-q99), "es975": float(-pnl[pnl <= q975].mean())}
 
 
+def kupiec(breaches: np.ndarray, p: float = 0.01) -> dict:
+    """Kupiec (1995) proportion-of-failures test: is the breach rate p? Likelihood ratio, chi-squared with 1 degree."""
+    from scipy.special import xlogy
+    from scipy.stats import chi2
+
+    t, x = len(breaches), int(np.sum(breaches))
+    q = x / t if t else 0.0
+    lr = -2 * (xlogy(t - x, 1 - p) + xlogy(x, p) - xlogy(t - x, 1 - q) - xlogy(x, q))
+    return {"lr": float(lr), "p_value": float(chi2.sf(lr, 1))}
+
+
+def christoffersen(breaches: np.ndarray) -> dict:
+    """Christoffersen (1998) independence test: does a breach today make one tomorrow more likely?"""
+    from scipy.special import xlogy
+    from scipy.stats import chi2
+
+    b = np.asarray(breaches, dtype=int)
+    prev, nxt = b[:-1], b[1:]
+    n00, n01 = int(np.sum((prev == 0) & (nxt == 0))), int(np.sum((prev == 0) & (nxt == 1)))
+    n10, n11 = int(np.sum((prev == 1) & (nxt == 0))), int(np.sum((prev == 1) & (nxt == 1)))
+    p01 = n01 / (n00 + n01) if n00 + n01 else 0.0
+    p11 = n11 / (n10 + n11) if n10 + n11 else 0.0
+    p = (n01 + n11) / max(n00 + n01 + n10 + n11, 1)
+    lr = -2 * (xlogy(n00 + n10, 1 - p) + xlogy(n01 + n11, p) - xlogy(n00, 1 - p01) - xlogy(n01, p01) - xlogy(n10, 1 - p11) - xlogy(n11, p11))
+    return {"lr": float(lr), "p_value": float(chi2.sf(lr, 1)), "back_to_back": n11}
+
+
 def backtest(pnl: np.ndarray, window: int = 250, test_days: int = 250) -> dict:
-    """VaR from the previous `window` days only, against each of the last `test_days` days."""
+    """VaR from the previous `window` days only, against each of the last `test_days` days.
+
+    Reported three ways: Basel's traffic light (count of exceptions), Kupiec's test of the exception rate,
+    and Christoffersen's test that exceptions do not cluster. A p-value below 0.05 rejects the model.
+    """
     start = max(window, len(pnl) - test_days)
     limits = np.array([-np.quantile(pnl[t - window:t], 0.01) for t in range(start, len(pnl))])
     breaches = pnl[start:] < -limits
     n = int(breaches.sum())
-    return {"days": int(len(limits)), "exceptions": n, "expected": round(0.01 * len(limits), 1), "zone": "green" if n <= 4 else "yellow" if n <= 9 else "red"}
+    return {"days": int(len(limits)), "exceptions": n, "expected": round(0.01 * len(limits), 1), "zone": "green" if n <= 4 else "yellow" if n <= 9 else "red",
+            "kupiec": kupiec(breaches), "christoffersen": christoffersen(breaches)}
 
 
 # ---------------------------------------------------------------------------------------------------------------
