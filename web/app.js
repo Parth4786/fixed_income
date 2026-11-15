@@ -306,44 +306,57 @@ async function trades() {
 // ================================================================ Price a trade
 const field = (label, hint, input) => el("label", {}, el("span", {}, label, hint && el("small", { text: ` ${hint}` })), input);
 async function price() {
-  const out = el("div", { style: "display:grid;gap:16px" });
+  const out = el("div", { style: "display:grid;gap:12px" });
+  const quote = el("div", { class: "quote", "aria-live": "polite" });
   const f = {};
   const inp = (name, attrs) => (f[name] = el("input", { id: `f-${name}`, ...attrs }));
-  const sel = (name, options) => (f[name] = el("select", { id: `f-${name}` }, options.map(([v, t]) => el("option", { value: v, text: t }))));
-  const seg = el("div", { class: "seg", role: "group", "aria-label": "Product" }, [["swap", "Swap"], ["option", "Swap option"]].map(([k, t]) => el("button", { type: "button", "aria-pressed": String(state.kind === k), text: t, onclick: () => { state.kind = k; price(); } })));
-  const form = el("form", { class: "terms" });
-  let presets;
-  if (state.kind === "swap") {
-    form.append(field("Length", "years", inp("years", { type: "number", value: 10, min: 0.25, max: 50, step: "any" })), field("Fixed rate", "%, blank for fair", inp("rate", { type: "number", step: "any", placeholder: "e.g. 4.7600" })),
-      field("Size", "dollars", inp("notional", { type: "number", value: 100000000, step: "any" })), field("You", "", sel("side", [["pay", "Pay the fixed rate"], ["receive", "Receive the fixed rate"]])),
-      field("Start date", "blank for standard", inp("start", { type: "date" })));
-    presets = [["2-year, $250m", { years: 2, notional: 250000000 }], ["5-year, $100m", { years: 5, notional: 100000000 }], ["10-year, $100m", { years: 10, notional: 100000000 }], ["30-year, $25m", { years: 30, notional: 25000000 }]];
+  const swap = state.kind === "swap";
+  const seg = el("div", { class: "seg full", role: "group", "aria-label": "Product" }, [["swap", "Swap"], ["option", "Swap option"]].map(([k, t]) => el("button", { type: "button", "aria-pressed": String(state.kind === k), text: t, onclick: () => { state.kind = k; price(); } })));
+  // Side as two buttons: the one choice every trade has
+  f.side = { value: "pay" };
+  const sideBtns = [["pay", swap ? "Pay fixed" : "Payer"], ["receive", swap ? "Receive fixed" : "Receiver"]].map(([k, t]) => el("button", { type: "button", "aria-pressed": String(k === "pay"), text: t, onclick: (e) => {
+    f.side.value = k; for (const b of sideBtns) b.setAttribute("aria-pressed", String(b === e.currentTarget)); run(); } }));
+  const side = el("div", { class: "seg full", role: "group", "aria-label": "Side" }, sideBtns);
+  const chipsFor = (name, vals, fmt) => el("div", { class: "presets tight" }, vals.map((v) => el("button", { type: "button", text: fmt(v), "aria-label": `${name} ${fmt(v)}`, onclick: () => { f[name].value = v; run(); } })));
+  const form = el("form", { class: "ticket" });
+  if (swap) {
+    form.append(seg, side,
+      field("Length", "years", inp("years", { type: "number", value: 10, min: 0.25, max: 50, step: "any" })), chipsFor("years", [2, 5, 10, 30], (v) => `${v}y`),
+      el("div", { class: "pair" }, field("Size", "$m", inp("size_m", { type: "number", value: 100, min: 0, step: "any" })), field("Your rate", "%", inp("rate", { type: "number", step: "any", placeholder: "blank = fair" }))),
+      field("Start", "blank = spot", inp("start", { type: "date" })));
   } else {
-    form.append(field("Option lasts", "years", inp("expiry_years", { type: "number", value: 1, min: 0.05, max: 30, step: "any" })), field("Swap length", "years", inp("swap_years", { type: "number", value: 10, min: 1, max: 40, step: "any" })),
-      field("Strike rate", "%, blank for at the money", inp("strike", { type: "number", step: "any" })), field("Size", "dollars", inp("notional", { type: "number", value: 100000000, step: "any" })),
-      field("Right to", "", sel("side", [["pay", "Pay the fixed rate"], ["receive", "Receive the fixed rate"]])), field("Premium paid", "dollars, optional", inp("premium", { type: "number", step: "any" })));
-    presets = [["1y into 10y", { expiry_years: 1, swap_years: 10 }], ["3m into 10y", { expiry_years: 0.25, swap_years: 10 }], ["1y into 5y", { expiry_years: 1, swap_years: 5 }],
-      ["The real trade of 12 Nov 2026", { expiry_years: 1, swap_years: 5, strike: 3.7, notional: 200000000, side: "receive", premium: 1000000 }]];
+    form.append(seg, side,
+      el("div", { class: "pair" }, field("Option", "years", inp("expiry_years", { type: "number", value: 1, min: 0.05, max: 30, step: "any" })), field("Into swap", "years", inp("swap_years", { type: "number", value: 10, min: 1, max: 40, step: "any" }))),
+      el("div", { class: "pair" }, field("Strike", "%", inp("strike", { type: "number", step: "any", placeholder: "blank = at the money" })), field("Size", "$m", inp("size_m", { type: "number", value: 100, min: 0, step: "any" }))),
+      field("Premium paid", "$, optional", inp("premium", { type: "number", step: "any" })),
+      el("div", { class: "presets tight" }, [["1y×10y", 1, 10], ["3m×10y", 0.25, 10], ["1y×5y", 1, 5], ["5y×5y", 5, 5]].map(([t, e, w]) => el("button", { type: "button", text: t, onclick: () => { f.expiry_years.value = e; f.swap_years.value = w; run(); } }))));
   }
-  form.append(el("button", { class: "btn", type: "submit", text: "Price it" }));
   const terms = () => {
     const v = (k) => (f[k] && f[k].value !== "" ? f[k].value : null);
-    return state.kind === "swap" ? { years: +v("years"), start: v("start"), rate: v("rate"), notional: +v("notional"), pay_fixed: v("side") === "pay" }
-      : { expiry_years: +v("expiry_years"), swap_years: +v("swap_years"), strike: v("strike"), notional: +v("notional"), payer: v("side") === "pay", premium: v("premium") };
+    const notional = (+v("size_m") || 0) * 1e6;
+    return swap ? { years: +v("years"), start: v("start"), rate: v("rate"), notional, pay_fixed: f.side.value === "pay" }
+      : { expiry_years: +v("expiry_years"), swap_years: +v("swap_years"), strike: v("strike"), notional, payer: f.side.value === "pay", premium: v("premium") };
   };
+  // Reprice as the terms change; a slower answer to an older request is dropped.
+  let seq = 0, timer = null;
   const run = async () => {
-    out.replaceChildren(el("p", { class: "note", text: "Pricing…" }));
+    const my = ++seq;
+    quote.classList.add("busy"); out.classList.add("busy");
     try {
       const r = await api(`/api/price/${state.kind}`, { method: "POST", body: { ...terms(), day: state.day } });
+      if (my !== seq) return;
       state.lastQuote = { kind: state.kind, terms: terms() };
-      (state.kind === "swap" ? swapResult : optionResult)(out, r);
-    } catch (e) { out.replaceChildren(el("p", { class: "err", text: `Could not price this trade: ${e.message}` })); }
+      (swap ? swapResult : optionResult)(out, r, quote);
+    } catch (e) { if (my === seq) quote.replaceChildren(el("p", { class: "err", text: `Cannot price these terms: ${e.message}` })); }
+    finally { if (my === seq) { quote.classList.remove("busy"); out.classList.remove("busy"); } }
   };
-  form.addEventListener("submit", (e) => { e.preventDefault(); run(); });
-  const chips = el("div", { class: "presets" }, "Try:", presets.map(([name, vals]) => el("button", { type: "button", text: name, onclick: () => { for (const [k, v] of Object.entries(vals)) if (f[k]) f[k].value = v; run(); } })));
-  const [cForm, bForm] = card("Trade terms", `Priced on the curve of ${nice(state.day)}. Change the day at the top right.`, "c12");
-  bForm.append(seg, form, chips);
-  page("Price a trade", el("span", {}, "Enter a ", term("swap", "swap"), " or a ", term("swap option", "option"), ". You get the fair price, whether yours is unusual, what the difference costs, the risk, a ", term("hedge", "hedge"), ", and what happens if the market moves."), grid(cForm), out);
+  form.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(run, 280); });
+  form.addEventListener("submit", (e) => { e.preventDefault(); clearTimeout(timer); run(); });
+  const [cT, bT] = card("Ticket", `Priced on the curve of ${nice(state.day)}; change the day at the top right. Reprices as you type.`, "c4");
+  bT.append(form);
+  const [cQ, bQ] = card("Quote", null, "c8");
+  bQ.append(quote);
+  page("Price a trade", null, grid(cT, cQ), out);
   run();
 }
 function saveRow() {
@@ -353,17 +366,9 @@ function saveRow() {
       try { await api("/api/blotter", { method: "POST", body: { ...state.lastQuote, label: label.value } }); msg.replaceChildren("Saved. ", el("a", { href: "#saved", text: "Open Saved trades" })); } catch (e) { msg.textContent = `Not saved: ${e.message}`; }
     } }), msg);
 }
-function swapResult(out, r) {
+function swapResult(out, r, quote) {
   const inside = r.verdict.startsWith("inside"), atFair = Math.abs(r.gap_bp) < 0.005;
   const worse = r.value < 0;
-  // The answer first, as four numbers.
-  const strip = el("div", { class: "kpis" },
-    kpi(term("Fair rate", "fair"), pct(r.fair_rate, 4), `${r.length_years}-year swap, curve of ${nice(r.day)}`),
-    kpi(term("Normal range", "range"), `±${r.band_bp.toFixed(2)} bp`, `${pct(r.low, 4)} to ${pct(r.high, 4)}`),
-    kpi("Your rate against fair", atFair ? "—" : bp(r.gap_bp, 1), atFair ? "type a fixed rate above to compare it" : `${money(Math.abs(r.value))} ${worse ? "worse" : "better"} for you than fair`),
-    kpi(term("Gain per basis point rise", "perbp"), money(r.dv01, true), r.pay_fixed ? "you pay fixed: you gain when rates rise" : "you receive fixed: you lose when rates rise"));
-
-  const [c1, b1] = card("Verdict", null, "c12");
   const span = Math.max(3 * r.band_bp, Math.abs(r.gap_bp) * 1.25), pos = (x) => `${50 + (Math.max(-span, Math.min(span, x)) / span) * 50}%`;
   const range = el("div", { class: "range" }, el("div", { class: "bar" }), el("div", { class: "band" }), el("div", { class: "fair" }), el("div", { class: "mark" }),
     el("span", { text: `fair ${pct(r.fair_rate, 4)}` }), el("span", { text: pct(r.low, 4) }), el("span", { text: pct(r.high, 4) }));
@@ -371,40 +376,44 @@ function swapResult(out, r) {
   range.children[2].style.left = "50%"; range.children[3].style.left = pos(r.gap_bp);
   range.children[4].style.left = "50%"; range.children[5].style.left = pos(-r.band_bp); range.children[6].style.left = pos(r.band_bp);
   if (Math.abs(pos(r.band_bp).replace("%", "") - 50) < 9) { range.children[5].hidden = true; range.children[6].hidden = true; }
-  const line1 = atFair ? "No rate entered: the numbers above are for a trade at fair."
-    : `${pct(r.rate, 4)} is ${Math.abs(r.gap_bp).toFixed(1)} bp ${r.gap_bp > 0 ? "above" : "below"} fair: ${money(Math.abs(r.value))} ${worse ? "worse" : "better"} for you.`;
+  const line1 = atFair ? null : `${pct(r.rate, 4)} is ${Math.abs(r.gap_bp).toFixed(1)} bp ${r.gap_bp > 0 ? "above" : "below"} fair: ${money(Math.abs(r.value))} ${worse ? "worse" : "better"} for you.`;
   const why = atFair ? `9 in 10 recent real trades of this length landed between ${pct(r.low, 4)} and ${pct(r.high, 4)}.`
     : inside ? `Inside the normal range: 9 in 10 recent real trades of this length landed within ${r.band_bp.toFixed(2)} bp of fair.`
       : `Outside the normal range: only about 1 in 10 recent real trades of this length landed more than ${r.band_bp.toFixed(2)} bp from fair.`;
-  b1.append(el("div", { class: "verdict" }, el("div", {}, atFair ? chip("no rate entered", "plain") : chip(inside ? "in line with the market" : "unusual price", inside ? "good" : "warn")),
-    el("div", { class: "line", text: line1 }), el("div", { class: "why", text: why }), range), saveRow());
-
-  const [c2, b2] = card("The trade in numbers", null, "c5");
-  b2.append(el("div", { class: "kv" }, [["You", r.pay_fixed ? "pay the fixed rate" : "receive the fixed rate"], ["Size", size(r.notional)], ["Runs", `${nice(r.start)} to ${nice(r.end)}`], ["Your rate", pct(r.rate, 4)],
-    ["Value today", money(r.value, true)]].flatMap(([a, b]) => [el("span", {}, a), el("span", { text: b })])),
+  const stat = (k, v) => el("div", { class: "qs" }, el("span", {}, k), el("b", { text: v }));
+  quote.replaceChildren(
+    el("div", { class: "qtop" },
+      el("div", {}, el("div", { class: "qlabel" }, term("Fair rate", "fair"), ` · ${r.length_years}-year, ${r.pay_fixed ? "you pay fixed" : "you receive fixed"}`), el("div", { class: "big", text: pct(r.fair_rate, 4) })),
+      el("div", { class: "qband" }, el("div", { class: "qlabel", text: "9 in 10 recent trades" }), el("div", { class: "qmid", text: `${r.low.toFixed(4)} – ${r.high.toFixed(4)}` })),
+      atFair ? chip("at fair", "plain") : chip(inside ? "in line" : "unusual price", inside ? "good" : "warn")),
+    range,
+    line1 ? el("div", { class: "qline", text: line1 }) : el("div", { class: "qline muted", text: "Type your rate to see how it compares." }),
+    el("div", { class: "qstats" }, stat("Value", money(r.value, true)), stat(term("Per bp rise", "perbp"), money(r.dv01, true)), stat(term("Normal range", "range"), `±${r.band_bp.toFixed(2)} bp`), stat("Runs", `${nice(r.start)} – ${nice(r.end)}`)),
+    saveRow(),
     more("Typical gap to fair by trade size", table([{ h: "Size", f: (x) => x.size.replace(/(\d+)m/g, "$$$1m") }, { h: "Typical gap", n: 1, f: (x) => `${x.bp.toFixed(2)} bp` }], r.typical_gap_by_size_bp, { scroll: false }),
-      el("p", { class: "note", text: "From recent real trades. Bigger trades show a wider gap, but once length, venue and clearing are accounted for, size alone has no reliable effect (see Patterns)." })));
+      el("p", { class: "note", text: "Bigger trades show a wider gap, but once length, venue and clearing are accounted for, size alone has no reliable effect (see Patterns)." })));
+  void why;
 
-  const [c3, b3] = card("Where the risk sits, and how to hedge it", el("span", {}, "Gain or loss if the rate at one point on the curve rises by a basis point."), "c7");
+  const [c3, b3] = card("Risk by curve point and hedge", el("span", {}, "Gain or loss if the rate at one point on the curve rises by a basis point, and the swaps that cancel it."), "c6");
   const point = (x) => (x.length < 1 ? `${x.length * 12}-month` : `${x.length}-year`);
   if (r.by_point.length <= 2) b3.append(el("div", { class: "kv" }, r.by_point.flatMap((x) => [el("span", { text: `${point(x)} point` }), el("span", { text: `${money(x.dv01, true)} per bp` })])));
   else { const ch = el("div"); bars(ch, { cats: r.by_point.map((x) => (x.length < 1 ? `${x.length * 12}m` : `${x.length}y`)), series: [{ name: "Per basis point", values: r.by_point.map((x) => x.dv01) }], bySign: true, yfmt: (v) => money(v), h: 190 }); b3.append(ch); }
   b3.append(r.hedge.length ? table([{ h: "To cancel the risk", wrap: 1, f: (x) => `${x.action === "pay fixed" ? "Pay" : "Receive"} fixed on a ${x.length} swap` }, { h: "Size", n: 1, f: (x) => size(Math.abs(x.notional)) }, { h: "At about", n: 1, f: (x) => pct(x.rate, 4) }], r.hedge, { scroll: false })
     : el("p", { class: "note", text: "No hedge needed." }), el("p", { class: "note" }, "On real trades this kind of hedge removed 99.6% of next-day risk. ", el("a", { href: "#accuracy", text: "See the test" })));
 
-  const [c4, b4] = card("If the market moves", "Each scenario fully repriced. The last three repeat the largest real daily moves in the data.", "c7");
+  const [c4, b4] = card("Scenarios", "Each scenario fully repriced. The last three repeat the largest real daily moves in the data.", "c6");
   const worst = Math.max(...r.stress.map((x) => Math.abs(x.change)));
   b4.append(table([{ h: "Scenario", wrap: 1, f: (x) => x.scenario.replace(/\d{4}-\d\d-\d\d/, (d) => nice(d)) }, { h: "Change in value", n: 1, f: (x) => el("span", {}, money(x.change, true), gapBar(x.change, worst / 2, true)) }], r.stress, { scroll: false }));
 
-  const [c5, b5] = card("Since yesterday", r.explain ? `Why the value changed from ${nice(r.explain.from)} to ${nice(r.explain.to)}.` : "Not available for this start date.", "c5 tight");
+  const [c5, b5] = card("Since yesterday", r.explain ? `Why the value changed from ${nice(r.explain.from)} to ${nice(r.explain.to)}.` : "Not available for this start date.", "c4 tight");
   if (r.explain) b5.append(el("div", { class: "kv" }, [["Total change", r.explain.total], ["From one day passing", r.explain.time], ["From rates moving", r.explain.rates], ["Left unexplained", r.explain.rest]].flatMap(([a, b]) => [el("span", { text: a }), el("span", { text: money(b, true) })])),
     el("p", { class: "note", text: "A small unexplained part means the risk numbers describe the trade well." }));
-  const [cM, bM] = card("The same swap under every model", `Each model's rate, and its typical miss against the next real ${r.length_group} trade.`, "c12");
+  const [cM, bM] = card("Every model", `Each model's rate, and its typical miss against the next real ${r.length_group} trade.`, "c8");
   const worstMiss = Math.max(...r.models.map((m) => m.miss_bp));
   const missBar = (m) => { const b = el("b"); b.style.left = "0"; b.style.width = `${Math.max(2, m.miss_bp / worstMiss * 100)}%`; b.style.background = m.used ? cv("--s1") : cv("--muted"); return el("span", { class: "gapbar", "aria-hidden": "true", style: "background:none" }, b); };
   bM.append(table([{ h: "Model", wrap: 1, f: (m) => el("span", {}, m.name.replace("Curve model", "Model").replace("Today's closing curve (outside provider)", "Same-day close").replace("Yesterday's closing curve (outside provider)", "Prior-day close"), " ", m.used ? chip("used", "good") : "") }, { h: "Fair rate", n: 1, f: (m) => pct(m.rate, 4) }, { h: "Your rate against it", n: 1, lo: 1, f: (m) => bp(m.your_gap_bp, 1) },
     { h: "Typical miss", n: 1, f: (m) => el("span", {}, `${m.miss_bp.toFixed(2)} bp`, missBar(m)) }, { h: "", wrap: 1, lo: 1, f: (m) => el("span", { class: "note", text: m.how }) }], r.models, { scroll: false }));
-  const rows = [strip, grid(c1), grid(c2, c3), grid(c4, c5), grid(cM)];
+  const rows = [grid(c3, c4), grid(cM, c5)];
   if (r.clearing) {
     const k = r.clearing, [cC, bC] = card("Swap or future? The cost of margin", el("span", {}, "The same position as a cleared swap and as ", term("swap futures", "future"), ". Both need ", term("margin", "margin"), ", and margin has to be funded."), "c12");
     const spread = el("input", { type: "number", value: 50, min: 0, max: 500, step: "any", id: "funding", style: "width:90px" });
@@ -423,33 +432,32 @@ function swapResult(out, r) {
   }
   out.replaceChildren(...rows);
 }
-function optionResult(out, r) {
+function optionResult(out, r, quote) {
   const paid = r.premium_paid != null, inside = paid && r.verdict.startsWith("inside"), v = r.vol;
-  const [c1, b1] = card("Verdict", null, "c12");
-  const line1 = paid ? `${money(r.premium_paid)} is ${money(Math.abs(r.premium_gap))} ${r.premium_gap > 0 ? "more" : "less"} than the model's ${money(r.model_premium)}.` : `The model's premium is ${money(r.model_premium)}.`;
-  const why = paid ? (r.implied_vol_bp == null ? "No level of volatility reproduces that premium, so the terms or the premium are likely misreported."
-    : `The premium implies volatility of ${r.implied_vol_bp} bp a year against the model's ${v.used_bp}. ${inside ? "That is inside" : "That is outside"} what 4 in 5 recent comparable trades showed (within ${r.vol_band_bp} bp).`)
-    : `Recent comparable trades put a fair premium between ${money(r.premium_low)} and ${money(r.premium_high)}.`;
-  b1.append(el("div", { class: "verdict" }, el("div", {}, paid ? chip(inside ? "in line with the market" : "unusual price", inside ? "good" : "warn") : chip("model price", "plain")),
-    el("div", { class: "line", text: line1 }), el("div", { class: "why", text: why })), saveRow());
-  const strip = el("div", { class: "kpis" },
-    kpi("Model premium", money(r.model_premium), `${r.model_premium_bp} bp of size`),
-    kpi(term("Volatility", "vol"), `${v.used_bp} bp a year`, `from the ${v.source}`),
-    kpi(term("Gain per basis point rise in rates", "perbp"), money(r.rate_risk_per_bp, true), r.payer ? "right to pay fixed" : "right to receive fixed"),
-    kpi("Gain per bp rise in volatility", money(r.vol_risk_per_bp, true), "the option's sensitivity to volatility"));
-  const [c2, b2] = card("The trade in numbers", null, "c6");
-  b2.append(el("div", { class: "kv" }, [["Right to", r.payer ? "pay the fixed rate" : "receive the fixed rate"], ["Size", size(r.notional)], ["Option ends", nice(r.expiry)], ["Swap would run", `${nice(r.swap_start)} to ${nice(r.swap_end)}`],
-    ["Rate the swap would have today", pct(r.forward_rate, 4)], ["Strike rate", pct(r.strike, 4)]].flatMap(([a, b]) => [el("span", {}, a), el("span", { text: b })])));
-  const [c3, b3] = card("Which volatility was used, and why", null, "c6");
+  const line1 = paid ? `${money(r.premium_paid)} is ${money(Math.abs(r.premium_gap))} ${r.premium_gap > 0 ? "more" : "less"} than the model's ${money(r.model_premium)}.` : null;
+  const why = paid ? (r.implied_vol_bp == null ? "No level of volatility reproduces that premium: the terms or the premium are likely misreported."
+    : `It implies ${r.implied_vol_bp} bp of volatility against ${v.used_bp}; ${inside ? "inside" : "outside"} what 4 in 5 comparable trades showed (±${r.vol_band_bp} bp).`) : null;
+  const stat = (k, val) => el("div", { class: "qs" }, el("span", {}, k), el("b", { text: val }));
+  quote.replaceChildren(
+    el("div", { class: "qtop" },
+      el("div", {}, el("div", { class: "qlabel", text: `Model premium · ${r.payer ? "payer" : "receiver"}, ${r.expiry_years}y into ${r.swap_years}y` }), el("div", { class: "big", text: money(r.model_premium) })),
+      el("div", { class: "qband" }, el("div", { class: "qlabel", text: "Range from recent trades" }), el("div", { class: "qmid", text: `${money(r.premium_low)} – ${money(r.premium_high)}` })),
+      paid ? chip(inside ? "in line" : "unusual price", inside ? "good" : "warn") : chip(`${r.model_premium_bp} bp of size`, "plain")),
+    line1 ? el("div", {}, el("div", { class: "qline", text: line1 }), el("div", { class: "note", text: why })) : el("div", { class: "qline muted", text: "Enter the premium paid to check it." }),
+    el("div", { class: "qstats" }, stat(term("Volatility", "vol"), `${v.used_bp} bp/yr`), stat("Forward rate", pct(r.forward_rate, 4)), stat("Strike", pct(r.strike, 4)),
+      stat(term("Per bp rise", "perbp"), money(r.rate_risk_per_bp, true)), stat("Per bp of vol", money(r.vol_risk_per_bp, true))),
+    saveRow());
+
+  const [c3, b3] = card("Which volatility, and why", null, "c4");
   b3.append(el("div", { class: "kv" }, [[term("Volatility", "vol"), `${v.used_bp} bp a year`], ["Taken from", v.source], ["Last similar real trade", v.last ? `${v.last.vol_bp} bp on ${nice(v.last.day)}` : "none"],
     ["Smooth surface at this point", v.surface_bp == null ? "n/a" : `${v.surface_bp} bp`], ["Normal range around it", `±${r.vol_band_bp} bp`]].flatMap(([a, b]) => [el("span", {}, a), el("span", { text: b })])),
     el("div", { class: "takeaway" }, el("b", { text: "Why the last trade: " }), "in testing, the last similar trade predicted the next one better than a smooth surface, so it is used when it is at most three days old. The surface fills in where nothing has traded. ", el("a", { href: "#accuracy", text: "See the result" })));
-  const [cM, bM] = card("The same option under every model", "Each model's volatility and premium, and how far it has typically been from the next real trade.", "c12");
+  const [cM, bM] = card("Every model", "Each model's volatility and premium, and how far it has typically been from the next real trade.", "c8");
   const worstMiss = Math.max(...r.models.map((m) => m.miss_bp));
   const missBar = (m) => { const b = el("b"); b.style.left = "0"; b.style.width = `${Math.max(2, m.miss_bp / worstMiss * 100)}%`; b.style.background = m.used ? cv("--s1") : cv("--muted"); return el("span", { class: "gapbar", "aria-hidden": "true", style: "background:none" }, b); };
-  bM.append(table([{ h: "Model", f: (m) => el("span", {}, m.name, " ", m.used ? chip("used", "good") : "") }, { h: "Volatility", n: 1, f: (m) => `${m.vol_bp} bp` }, { h: "Premium", n: 1, f: (m) => money(m.premium) },
+  bM.append(table([{ h: "Model", wrap: 1, f: (m) => el("span", {}, m.name, " ", m.used ? chip("used", "good") : "") }, { h: "Volatility", n: 1, f: (m) => `${m.vol_bp} bp` }, { h: "Premium", n: 1, f: (m) => money(m.premium) },
     ...(paid ? [{ h: "Paid against it", n: 1, f: (m) => money(r.premium_paid - m.premium, true) }] : []), { h: "Typical miss", n: 1, f: (m) => el("span", {}, `${m.miss_bp.toFixed(1)} bp of volatility`, missBar(m)) }], r.models, { scroll: false }));
-  const rows = [strip, grid(c1), grid(c2, c3), grid(cM)];
+  const rows = [grid(cM, c3)];
   const bz = r.bermudan;
   if (bz && !bz.error) {
     const eu = bz.european, be = bz.bermudan, wait = be.pde - eu.exact, side = r.payer ? "above" : "below";
