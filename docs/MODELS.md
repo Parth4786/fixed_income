@@ -209,7 +209,7 @@ Standard errors clustered by day. $b = 1.07$ bp per \$1bn (partly built in, sinc
 
 Over the first two years the overnight rate is constant between meetings: $r_k$ on segment $k$, with $d_k(T)$ the days of segment $k$ before $T$.
 
-$$-\ln DF(T) = \sum_k r_k\, rac{d_k(T)}{360}, \qquad \min_r \sum_k (r_{k+1} - r_k)^2 \ 	ext{ subject to } \ DF(T_j) = DF^{	ext{curve}}(T_j) \ 	ext{for every short-end point } T_j$$
+$$-\ln DF(T) = \sum_k r_k\, \frac{d_k(T)}{360}, \qquad \min_r \sum_k (r_{k+1} - r_k)^2 \ \text{ subject to } \ DF(T_j) = DF^{\text{curve}}(T_j) \ \text{for every short-end point } T_j$$
 
 Solved in closed form (equality-constrained least squares). **Assumes:** decisions take effect the day after a scheduled meeting; between meetings the rate is flat. **Measured:** forward swaps under a year 1.10 → 1.07 bp (t 3.1); one to two years no reliable difference.
 
