@@ -158,6 +158,23 @@ Pause or resume from the **Trades** screen, or:
 curl -X POST http://127.0.0.1:8765/api/live/off
 ```
 
+How often each free source can refresh the app:
+
+| Source | What it gives | How often it updates | How the app picks it up |
+|---|---|---|---|
+| DTCC public ticker | Latest reported swap trades | Intraday, as trades are reported | Polled every 45 seconds while the app runs |
+| DTCC daily files | Every report of the day, corrections included | Once a day | `fetch`, then `build` and `score` |
+| Eris (CME) settlement files | Swap futures prices, risk, margin, option settlements, curves | Once a day after the close | `score` |
+| New York Fed | Overnight rate (SOFR) and its percentiles | Once a day, for the previous business day | `score` |
+| New York Fed | Fed Treasury holdings, security by security | Weekly | `score` |
+| Federal Reserve Board | Fitted Treasury and TIPS curves | Published with a lag of several days | `score`; screens show the curve's own date |
+
+So the trade feed is near real time, and everything else is end of day or
+slower. A true tick-by-tick stream of dealer quotes needs a paid feed
+(Bloomberg, LSEG, or CME's market data). The app is built so such a feed
+would enter in the same place as the ticker: each new price goes through the
+model and is pushed to the browser.
+
 To keep stored history current, run these once a day after 06:00 UTC, then
 restart the app:
 

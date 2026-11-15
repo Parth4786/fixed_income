@@ -73,6 +73,21 @@ const more = (summary, ...kids) => el("details", { class: "more" }, el("summary"
 const SHAPE = { "parallel shift": "a move of all rates together", "steeper or flatter": "a change in steepness", "more or less curved": "a change in curvature" };
 const moved = (v) => (Math.abs(v) < 0.05 ? "was unchanged" : `${v > 0 ? "rose" : "fell"} ${Math.abs(v).toFixed(1)} bp`);
 
+/* On the evidence pages each card keeps its number, chart and one bold takeaway in view; loose method notes
+   fold into one closed section at the foot of the card, so nothing is lost and nothing has to be read first. */
+const FOLD = new Set(["patterns", "accuracy"]);
+function foldNotes(root) {
+  for (const body of root.querySelectorAll("section.card > div")) {
+    const notes = [...body.children].filter((n) => n.matches("p.note") && !/^Run |…$/.test(n.textContent));
+    if (!notes.length) continue;
+    body.append(el("details", { class: "more" }, el("summary", { text: "Method and caveats" }), ...notes));
+  }
+}
+/* On a phone, a table wider than the screen becomes one small card per row instead of scrolling sideways. */
+function stackWide(root) {
+  if (innerWidth > 640) return;
+  requestAnimationFrame(() => { for (const w of root.querySelectorAll(".scroll")) if (w.scrollWidth > w.clientWidth + 2) w.classList.add("stacked"); });
+}
 let tipSeq = 0;
 function card(title, sub, cls = "c6") {
   const body = el("div");
@@ -88,7 +103,8 @@ const chip = (text, kind = "plain") => el("span", { class: `chip ${kind}`, text 
 function table(cols, rows, { scroll = true } = {}) {
   const t = el("table", {}, el("thead", {}, el("tr", {}, cols.map((c) => el("th", { class: `${c.n ? "n" : ""} ${c.lo ? "lo" : ""} ${c.mid ? "mid" : ""}` }, c.h || el("span", { class: "sr", text: c.sr || "Detail" }))))));
   const body = el("tbody");
-  for (const r of rows) body.append(el("tr", {}, cols.map((c) => el("td", { class: `${c.n ? "n" : ""} ${c.wrap ? "wrapcell" : ""} ${c.lo ? "lo" : ""} ${c.mid ? "mid" : ""}` }, c.f(r)))));
+  const label = (c) => (typeof c.h === "string" && c.h ? c.h : c.sr || "");
+  for (const r of rows) body.append(el("tr", {}, cols.map((c) => el("td", { class: `${c.n ? "n" : ""} ${c.wrap ? "wrapcell" : ""} ${c.lo ? "lo" : ""} ${c.mid ? "mid" : ""}`, "data-label": label(c) }, c.f(r)))));
   t.append(body);
   return el("div", scroll ? { class: "scroll", tabindex: 0, role: "group", "aria-label": "Table; scroll for more rows" } : { class: "scroll flat" }, t);
 }
@@ -1003,7 +1019,7 @@ async function route() {
   document.getElementById("crumb").textContent = TITLES[name];
   document.querySelector('#nav a[aria-current="page"]')?.scrollIntoView({ block: "nearest", inline: "center" });
   view.replaceChildren(el("p", { class: "note", text: "Loading…" }));
-  try { await routes[name](); } catch (e) { view.replaceChildren(el("p", { class: "err", text: `Could not load this page: ${e.message}` })); }
+  try { await routes[name](); if (FOLD.has(name)) foldNotes(view); stackWide(view); } catch (e) { view.replaceChildren(el("p", { class: "err", text: `Could not load this page: ${e.message}` })); }
   scrollTo(0, 0);
 }
 async function start() {
