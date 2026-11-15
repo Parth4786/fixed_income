@@ -142,7 +142,7 @@ async def lifespan(app: FastAPI):
     app.state.store = Store()
     app.state.live = Live(app.state.store)
     # Build the two slow results once in the background, so the first visit to those screens does not wait for them.
-    threading.Thread(target=lambda: (app.state.store.quality(), app.state.store.lab({}), app.state.store.fed_book()), daemon=True).start()
+    threading.Thread(target=lambda: (app.state.store.quality(), app.state.store.lab({}), app.state.store.fed_book(), app.state.store.engine_checks()), daemon=True).start()
     task = asyncio.create_task(app.state.live.poll_forever())
     yield
     task.cancel()
@@ -288,6 +288,18 @@ def _valued(row: sqlite3.Row) -> dict:
 def blotter_list():
     with closing(db()) as con:
         return [_valued(r) for r in con.execute("select * from blotter order by id desc")]
+
+
+@app.get("/api/monitor")
+def monitor(day: str | None = None):
+    """The curve monitor: every point and the main spreads, with changes, range, roll-down and forward."""
+    return S().monitor(day)
+
+
+@app.get("/api/engine-checks")
+def engine_checks():
+    """Bermudan option engines (PDE, Monte Carlo) against the closed-form European on real calibrated days."""
+    return S().engine_checks()
 
 
 @app.get("/api/fed-book")

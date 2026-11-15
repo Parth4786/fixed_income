@@ -19,7 +19,7 @@ from tapemark.clean.swaptions import OPTION_RULES
 from tapemark.models import meeting_curve
 from tapemark.models.curve_filter import NODES
 from tapemark.paths import CLEAN, DATA
-from tapemark.pricing import eris_futures, hullwhite, risk
+from tapemark.pricing import bermudan, eris_futures, hullwhite, risk
 from tapemark.pricing import options as opt
 from tapemark.pricing.calendar import add_business_days
 from tapemark.pricing.curve import Curve, annuity_and_float, par_rate, payer_value, shift_months, shift_years, spot_start
@@ -376,6 +376,15 @@ class Store:
                "premium_low": float(opt.bachelier(fwd, strike, t_years, max(vol - vol_band / 1e4, 1e-5), ann, payer)) * notional,
                "premium_high": float(opt.bachelier(fwd, strike, t_years, vol + vol_band / 1e4, ann, payer)) * notional,
                "rate_risk_per_bp": delta * notional * 1e-4, "vol_risk_per_bp": vega_bp * notional}
+        if hw_day:
+            speed, sig, _ = hw[hw_day]
+            try:
+                b = bermudan.price_all(c, expiry, start, end, strike, speed, sig, payer)
+                out["bermudan"] = {"speed": speed, "sigma_bp": _r(sig * 1e4, 1), "calibrated_on": hw_day, "european": {k: v * notional for k, v in b["european"].items()},
+                                   "bermudan": {k: (v * notional if k != "dates" else v) for k, v in b["bermudan"].items()}, "boundary": b["boundary"],
+                                   "grid": b["grid"], "time_steps": b["time_steps"], "paths": b["paths"]}
+            except Exception as exc:  # noqa: BLE001 - shown, not fatal
+                out["bermudan"] = {"error": str(exc)[:160]}
         if q.get("premium") not in (None, ""):
             paid = float(q["premium"])
             iv = float(opt.implied_vol(paid / notional, fwd, strike, t_years, ann, payer))
@@ -507,6 +516,90 @@ class Store:
             except Exception as exc:  # noqa: BLE001 - optional data
                 self._fed_book = {"error": str(exc)[:160]}
         return self._fed_book
+
+    def monitor(self, day=None) -> dict:
+        """Every curve point and the main spreads: level, changes, place in the year's range, roll-down and forward."""
+        d = self.day(day)
+        x = self.eod.loc[: pd.Timestamp(d)].values
+        now = x[-1]
+        c = Curve.from_par(d, NODES, now)
+        st = np.array([spot_start(d)])
+
+        def par(start, end):
+            return float(par_rate(c, start, end)[0])
+
+        def stats(series, f):
+            """Changes always in bp; levels in the series' own unit times f."""
+            year = series[-252:]
+            chg = {f"chg_{k}": (_r((series[-1] - series[-1 - n]) * 100, 2) if len(series) > n else None) for k, n in (("1d", 1), ("1w", 5), ("1m", 21))}
+            return {**chg, "lo": _r(year.min() * f, 3), "hi": _r(year.max() * f, 3), "pctile": _r(float((year < series[-1]).mean() * 100), 0),
+                    "trend": [_r(v * f, 3) for v in series[-60:]]}
+
+        rows = []
+        for j, (t, lab) in enumerate(zip(NODES, ("3m", "6m", "1y", "2y", "3y", "4y", "5y", "7y", "10y", "12y", "15y", "20y", "25y", "30y"), strict=True)):
+            months = int(round(t * 12))
+            end = shift_months(st, months)
+            spot = par(st, end)
+            roll = (spot - par(st, shift_months(st, months - 3))) * 100 if months > 3 else None
+            fwd = (par(shift_months(st, 3), shift_months(st, months + 3)) - spot) * 100
+            rows.append({"length": lab, "rate": _r(now[j], 4), **stats(x[:, j], 1.0), "roll_3m_bp": _r(roll, 2), "fwd_3m_bp": _r(fwd, 2)})
+        idx = {lab: i for i, lab in enumerate(("3m", "6m", "1y", "2y", "3y", "4y", "5y", "7y", "10y", "12y", "15y", "20y", "25y", "30y"))}
+        spreads = []
+        for name, w in (("2s10s", {"10y": 1, "2y": -1}), ("5s30s", {"30y": 1, "5y": -1}), ("2s5s10s fly", {"5y": 2, "2y": -1, "10y": -1})):
+            series = sum(k * x[:, idx[t]] for t, k in w.items())
+            spreads.append({"name": name, "level_bp": _r(series[-1] * 100, 2), **stats(series, 100.0)})
+        return {"day": str(d), "rows": rows, "spreads": spreads}
+
+    def engine_checks(self) -> dict:
+        """The numerical engines against closed form on real days, and the value of waiting on each day (computed once)."""
+        if getattr(self, "_engine_checks", None) is None:
+            try:
+                self._engine_checks = self._run_engine_checks()
+            except Exception as exc:  # noqa: BLE001 - optional
+                self._engine_checks = {"error": str(exc)[:160]}
+        return self._engine_checks
+
+    def _option_case(self, d, expiry_months=12, swap_years=10):
+        c = Curve.from_par(d, NODES, self.state(d))
+        expiry = shift_months(d, expiry_months)
+        start = add_business_days(expiry, 2)
+        end = shift_years(start, swap_years)
+        a, fl = annuity_and_float(c, start, end)
+        return c, expiry, start, end, float(fl[0] / a[0])
+
+    def _run_engine_checks(self) -> dict:
+        hw = self.vol_grids.get("hull_white", {})
+        days = [k for k in sorted(hw) if np.datetime64(k, "D") in set(self.days.astype("datetime64[D]"))][-250:]
+        if not days:
+            return {"error": "no Hull-White calibration"}
+        last = np.datetime64(days[-1], "D")
+        speed, sig, _ = hw[days[-1]]
+        c, expiry, start, end, fwd = self._option_case(last)
+        conv = bermudan.convergence(c, expiry, start, end, fwd, speed, sig)
+        full = bermudan.price_all(c, expiry, start, end, fwd, speed, sig, paths=40000)
+        history, errs = [], []
+        for k in days:
+            a_, s_, _ = hw[k]
+            ck, ek, sk, nk, fk = self._option_case(np.datetime64(k, "D"))
+            eu = hullwhite.exact_payer_price(ck, ek, sk, nk, fk, a_, s_, points=801)
+            pe = bermudan.pde_price(ck, ek, sk, nk, fk, a_, s_, bermudan=False)["price"]
+            be = bermudan.pde_price(ck, ek, sk, nk, fk, a_, s_, bermudan=True)
+            errs.append((pe - eu) / eu)
+            history.append({"day": k, "european_bp": _r(eu * 1e4, 1), "bermudan_bp": _r(be["price"] * 1e4, 1), "forward_pct": _r(fk * 100, 3),
+                            "first_boundary_pct": be["boundary"][0]["rate_pct"] if be["boundary"] else None, "speed": a_, "sigma_bp": _r(s_ * 1e4, 1)})
+        errs = np.abs(np.array(errs))
+        # European prices fix sigma for each speed but barely tell the speeds apart; the Bermudan depends on the speed.
+        from tapemark.scoring.options import HW_A
+        target = float(hullwhite.normal_vol_factor(c, expiry, start, end, speed)[0]) * sig
+        by_speed = []
+        for a_ in HW_A:
+            s_ = target / float(hullwhite.normal_vol_factor(c, expiry, start, end, a_)[0])
+            eu = hullwhite.exact_payer_price(c, expiry, start, end, fwd, a_, s_, points=801)
+            be = bermudan.pde_price(c, expiry, start, end, fwd, a_, s_)["price"]
+            by_speed.append({"speed": a_, "sigma_bp": _r(s_ * 1e4, 1), "european_bp": _r(eu * 1e4, 1), "bermudan_bp": _r(be * 1e4, 1), "calibrated": a_ == speed})
+        return {"case": "right to pay the current 10-year rate in one year, usable on each yearly reset (10 dates)", "day": days[-1], "speed": speed, "sigma_bp": _r(sig * 1e4, 1),
+                "latest": full, "convergence": conv, "history": history, "by_speed": by_speed, "swap_vol_bp": _r(target * 1e4, 1),
+                "pde_vs_exact": {"days": len(days), "max_rel_error_pct": _r(float(errs.max()) * 100, 4), "median_rel_error_pct": _r(float(np.median(errs)) * 100, 5)}}
 
     def _history_for_var(self):
         """Six years of daily published par curves at the model's points (the outside provider's history file)."""

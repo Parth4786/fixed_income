@@ -19,6 +19,7 @@ const GLOSSARY = {
   option: ["Swap option", "The right, without the obligation, to enter a swap later at a rate agreed today. The buyer pays a premium for it."],
   clean: ["Clean trade", "A plain, standalone swap starting on the standard date. Its rate can be read directly as a market price."],
   package: ["Package", "Several trades agreed together at one price. A single leg's reported rate may not be a standalone price."],
+  bermudan: ["Bermudan option", "An option that can be used on any of several set dates, not just one. Callable bonds and cancellable swaps contain one."],
   oos: ["Out of sample", "Tested on trades the model had not seen when it made the prediction."],
   baseline: ["Baseline", "A simple alternative the model must beat, such as using the last trade of the same length."],
   spread: ["Swap rate minus Treasury yield", "The gap between a swap rate and the government bond yield of the same length."],
@@ -72,9 +73,12 @@ const more = (summary, ...kids) => el("details", { class: "more" }, el("summary"
 const SHAPE = { "parallel shift": "a move of all rates together", "steeper or flatter": "a change in steepness", "more or less curved": "a change in curvature" };
 const moved = (v) => (Math.abs(v) < 0.05 ? "was unchanged" : `${v > 0 ? "rose" : "fell"} ${Math.abs(v).toFixed(1)} bp`);
 
+let tipSeq = 0;
 function card(title, sub, cls = "c6") {
   const body = el("div");
-  const head = el("header", {}, el("h2", {}, title), sub && el("p", {}, sub));
+  const id = `about${++tipSeq}`;
+  const head = el("header", {}, el("h2", {}, title), sub && el("button", { class: "info", type: "button", "aria-label": "About this card", "aria-describedby": id, text: "i" }),
+    sub && el("div", { class: "tip", role: "tooltip", id }, sub));
   return [el("section", { class: `card ${cls}` }, head, body), body];
 }
 function kpi(label, value, detail, trend, minor = false) {
@@ -142,7 +146,7 @@ async function overview() {
   view.querySelector(".pagehead").remove();
 }
 
-function brief(o) {
+function brief(o, compact = false) {
   const r = Object.fromEntries(o.key_rates.map((k) => [k.length, k]));
   const st = o.slopes[0], shape = o.move_shape.slice().sort((a, b) => b.share_pct - a.share_pct)[0];
   const top = o.surprises[0];
@@ -154,23 +158,53 @@ function brief(o) {
     el("span", {}, el("b", { text: `${num(o.trades.outside)} of ${num(o.trades.clean)} clean trades` }), " landed outside the ", term("normal range", "range"), ". ",
       top ? `The furthest was a ${top.length}-year at ${pct(top.rate, 4)}, ${Math.abs(top.gap_bp).toFixed(2)} bp ${top.gap_bp < 0 ? "below" : "above"} fair on ${size(top.notional)}.` : ""),
   ];
+  if (compact) {
+    const short = [
+      el("span", {}, "10y ", el("b", { text: pct(r["10y"].rate) }), " ", delta(r["10y"].change_bp), "; curve ", st.change_bp > 0.05 ? "steeper" : st.change_bp < -0.05 ? "flatter" : "unchanged", ` ${Math.abs(st.change_bp).toFixed(1)} bp (2s10s).`),
+      el("span", {}, el("b", { text: num(o.trades.all_swaps) }), ` swaps, ${size(o.trades.notional_bn * 1e9)}.`, o.trades.busiest_length ? ` Most risk in ${o.trades.busiest_length} (${o.trades.busiest_share_pct}%).` : ""),
+      el("span", {}, el("b", { text: num(o.trades.outside) }), ` of ${num(o.trades.clean)} trades outside the `, term("normal range", "range"), ". ", el("a", { href: "#trades", text: "See them" })),
+    ];
+    return el("ul", { class: "bullets" }, short.map((x) => el("li", {}, x)));
+  }
   return el("div", { class: "brief" }, el("ul", {}, items.map((x, i) => el("li", {}, el("span", { class: "n", text: i + 1 }), x))));
+}
+
+/* The curve monitor: one row per swap length, then the main spreads. */
+function monitorTable(m) {
+  const sgn = (v, d = 1) => (v == null ? "" : el("span", { class: `num ${v > 0.05 ? "up" : v < -0.05 ? "dn" : ""}`, text: `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(d)}` }));
+  const plain = (v) => (v == null ? "" : el("span", { class: "num", text: `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(1)}` }));
+  const range = (r, now) => {
+    const w = r.hi - r.lo || 1, at = Math.min(Math.max((now - r.lo) / w, 0), 1);
+    const b = el("span", { class: "rng", title: `Past year: ${r.lo} to ${r.hi}; higher than ${r.pctile}% of days` }, el("i"));
+    b.firstChild.style.left = `${at * 100}%`;
+    return el("span", { class: "rngwrap" }, b, el("span", { class: "sr", text: `higher than ${r.pctile}% of the past year` }));
+  };
+  const cols = (fmtLevel) => [
+    { h: "", sr: "Length", f: (r) => el("b", { text: r.length || r.name }) }, { h: "Level", n: 1, f: fmtLevel },
+    { h: "1d", n: 1, f: (r) => sgn(r.chg_1d) }, { h: "1w", n: 1, f: (r) => sgn(r.chg_1w) }, { h: "1m", n: 1, f: (r) => sgn(r.chg_1m) },
+    { h: "1-year range", lo: 1, f: (r) => range(r, r.rate ?? r.level_bp) }, { h: "60 days", lo: 1, f: (r) => spark(r.trend) },
+  ];
+  const rates = table([...cols((r) => el("span", { class: "num", text: r.rate.toFixed(3) })),
+    { h: "Roll 3m", n: 1, mid: 1, f: (r) => plain(r.roll_3m_bp) }, { h: "Fwd 3m", n: 1, mid: 1, f: (r) => plain(r.fwd_3m_bp) }], m.rows, { scroll: false });
+  const spreads = table(cols((r) => el("span", { class: "num", text: r.level_bp.toFixed(1) })), m.spreads, { scroll: false });
+  rates.classList.add("monitor"); spreads.classList.add("monitor");
+  return el("div", {}, rates, el("h3", { class: "sub", text: "Spreads, bp" }), spreads,
+    el("p", { class: "note", text: "Rates in %, changes in bp. Red rose, blue fell." }));
 }
 
 // ================================================================ Today
 async function today() {
-  const [o, c, f, h, mk] = await Promise.all([q("/api/overview"), q("/api/curve"), q("/api/flow"), api("/api/history"), api("/api/markets")]);
+  const [o, c, f, h, mk, mon] = await Promise.all([q("/api/overview"), q("/api/curve"), q("/api/flow"), api("/api/history"), api("/api/markets"), q("/api/monitor")]);
   const at = h.days.indexOf(o.day), tail = (a) => a.slice(Math.max(0, at - 60), at + 1);
-  const rate = (k) => kpi(el("span", {}, `${k.length.replace("y", "-year")} swap rate`), pct(k.rate), delta(k.change_bp), tail(h.rates[k.length]));
-  const row1 = el("div", { class: "kpis" }, o.key_rates.map(rate));
-  const row2 = el("div", { class: "kpis" },
-    kpi(term("Steepness, 2 to 10 years", "steep"), `${lvl(o.slopes[0].bp)} bp`, delta(o.slopes[0].change_bp), tail(h.slope_2y_10y_bp), true),
-    kpi(term("Option volatility", "vol"), o.vol_1y10y_bp == null ? "n/a" : `${o.vol_1y10y_bp.toFixed(0)} bp a year`, "1-year option on a 10-year swap", null, true),
-    o.sofr ? kpi(term("Overnight rate", "sofr"), pct(o.sofr.rate, 2), `fixing for ${nice(o.sofr.day)}`, null, true) : null,
-    o.swap_spread_10y_bp != null ? kpi(term("10-year swap minus Treasury", "spread"), `${lvl(o.swap_spread_10y_bp)} bp`, el("span", {}, `as of ${nice(o.treasury_day).replace(/ \d{4}$/, "")} `, o.treasury_day !== o.day ? chip("latest Treasury curve", "warn") : ""), h.swap_spread_bp ? tail(h.swap_spread_bp["10y"]) : null, true) : null);
-
-  const [cBrief, bBrief] = card("In brief", null, "c12");
-  bBrief.append(brief(o));
+  const [cMon, bMon] = card("Curve monitor", "Model closing rate at every swap length. Changes in basis points over one day, one week (5 days) and one month (21 days). The bar is the past year's range with today's level marked. Roll 3m: how much the rate falls as the swap ages three months on an unchanged curve. Fwd 3m: the same swap starting in three months, against today; the move the curve already prices in.", "c8 tight");
+  bMon.append(monitorTable(mon));
+  const [cBrief, bBrief] = card("In brief", null, "c4");
+  bBrief.append(brief(o, true));
+  const side = el("div", { class: "kv compact" }, [
+    [term("Overnight rate", "sofr"), o.sofr ? pct(o.sofr.rate, 2) : "n/a"], [term("Option volatility, 1y into 10y", "vol"), o.vol_1y10y_bp == null ? "n/a" : `${o.vol_1y10y_bp.toFixed(0)} bp/yr`],
+    [term("10y swap − Treasury", "spread"), o.swap_spread_10y_bp != null ? `${lvl(o.swap_spread_10y_bp)} bp${o.treasury_day !== o.day ? "*" : ""}` : "n/a"]].flatMap(([k, v]) => [el("span", {}, k), el("span", { class: "num", text: v })]));
+  bBrief.append(side);
+  if (o.treasury_day && o.treasury_day !== o.day) bBrief.append(el("p", { class: "note", text: `* Treasury curve of ${nice(o.treasury_day)}, the latest published.` }));
 
   const [cCurve, bCurve] = card("Where rates closed", el("span", {}, "The ", term("fair rate", "fair"), " for each swap length. Dots are the middle rate of the day's real trades; the dashed line is the previous day."), "c7");
   const dots = c.traded.filter((t) => t.trades >= 3 && NODE_LABELS.includes(`${t.length}y`)).map((t) => ({ i: NODE_LABELS.indexOf(`${t.length}y`), y: t.median, color: cv("--ink2"), name: `Middle of ${t.trades} trades` }));
@@ -179,11 +213,11 @@ async function today() {
     series: [{ name: "Model", color: cv("--s1"), values: c.ours }, ...(c.previous ? [{ name: "Previous day", color: cv("--muted"), dash: true, values: c.previous }] : [])] });
   bCurve.append(chart);
 
-  const [cMove, bMove] = card("What moved", el("span", {}, "Change in the fair rate at each length, in ", term("basis points", "bp"), "."), "c5");
+  const [cMove, bMove] = card("What moved", el("span", {}, "Change in the fair rate at each length, in ", term("basis points", "bp"), ". The shares split the day's move into the three ways the curve usually moves."), "");
   const mv = el("div");
   bars(mv, { cats: NODE_LABELS, series: [{ name: "Change", values: o.move_bp }], bySign: true, yfmt: (v) => v.toFixed(1), h: 200 });
   bMove.append(mv, el("div", { class: "kv" }, o.move_shape.flatMap((s) => [el("span", { text: `Share that was ${SHAPE[s.name]}` }), el("span", { text: `${s.share_pct}%` })])),
-    el("p", { class: "note", text: "The three shapes are the main ways the curve has moved over the past year." }));
+  );
 
   const [cFlow, bFlow] = card("Where risk changed hands", el("span", {}, term("Gain per basis point", "perbp"), " traded at each length."), "c5");
   const lens = [...new Set(f.by_length.map((r) => r.length))];
@@ -198,12 +232,8 @@ async function today() {
     { h: "Gap", n: 1, f: (r) => bp(r.gap_bp, 2) }, { h: "Size", lo: 1, n: 1, f: (r) => size(r.notional) }, { h: "Gap in dollars", n: 1, f: (r) => money(r.dollars, true) }], o.surprises, { scroll: false }),
     el("p", { class: "note", text: "A wide gap is a question, not a verdict: the public record does not show special terms. " }, el("a", { href: "#trades", text: "See every trade" })));
 
-  const [cFwd, bFwd] = card("What the market expects next", "The 1-year swap rate starting today, and starting in later years: the path of rates priced in. Points, not a line, because nothing is known between them.", "c6");
-  const fw = c.forwards.filter((x) => [0, 1, 2, 3, 5, 7, 10].includes(x.starts_in_years));
-  line(bFwd, { labels: fw.map((x) => (x.starts_in_years ? `in ${x.starts_in_years}y` : "today")), series: [{ name: "1-year rate", color: cv("--s1"), values: fw.map((x) => x.one_year_rate), markers: true }],
-    yfmt: (v) => `${v.toFixed(2)}%`, endLabels: false, xticks: fw.map((_, i) => i), h: 240 });
   const path = (c.meetings || []).filter((x) => x.from > o.day);
-  const [cFed, bFed] = card("What the market prices for each Fed meeting", "The overnight rate implied for the period after each scheduled meeting, from today's curve. Read as the market's average expectation, not a forecast.", "c6");
+  const [cFed, bFed] = card("What the market prices for each Fed meeting", "The overnight rate implied for the period after each scheduled meeting, from today's curve. Read as the market's average expectation, not a forecast.", "c5");
   if (path.length) {
     const now = o.sofr ? o.sofr.rate : null, end = path.at(-1);
     bFed.append(headline(now == null ? pct(end.rate_pct, 2) : bp((end.rate_pct - now) * 100, 0), now == null ? `after ${nice(end.from)}` : `priced by ${nice(end.from)} against today's overnight rate of ${pct(now, 2)}`));
@@ -215,7 +245,7 @@ async function today() {
   line(bShape, { labels: NODE_LABELS, xticks: NODE_TICKS, yfmt: (v) => v.toFixed(2), h: 220, zero: true, endLabels: false,
     series: [{ name: "All lengths together", color: cv("--s1"), values: mk.pca.shapes[0] }, { name: "Short against long", color: cv("--s3"), values: mk.pca.shapes[1] }, { name: "Middle against the ends", color: cv("--muted"), values: mk.pca.shapes[2] }] });
 
-  page(`Today: ${nice(o.day)}`, "Where dollar swap rates closed, what moved, where risk changed hands, and which trades stood out.", row1, row2, grid(cBrief), grid(cCurve, cMove), grid(cFlow, cSur), grid(cFwd, cFed), grid(cHist, cShape));
+  page(`Today: ${nice(o.day)}`, null, grid(cMon, el("div", { class: "c4 stack" }, cBrief, cMove)), grid(cCurve, cFed), grid(cFlow, cSur), grid(cHist, cShape));
 }
 
 // ================================================================ Trades
@@ -419,7 +449,24 @@ function optionResult(out, r) {
   const missBar = (m) => { const b = el("b"); b.style.left = "0"; b.style.width = `${Math.max(2, m.miss_bp / worstMiss * 100)}%`; b.style.background = m.used ? cv("--s1") : cv("--muted"); return el("span", { class: "gapbar", "aria-hidden": "true", style: "background:none" }, b); };
   bM.append(table([{ h: "Model", f: (m) => el("span", {}, m.name, " ", m.used ? chip("used", "good") : "") }, { h: "Volatility", n: 1, f: (m) => `${m.vol_bp} bp` }, { h: "Premium", n: 1, f: (m) => money(m.premium) },
     ...(paid ? [{ h: "Paid against it", n: 1, f: (m) => money(r.premium_paid - m.premium, true) }] : []), { h: "Typical miss", n: 1, f: (m) => el("span", {}, `${m.miss_bp.toFixed(1)} bp of volatility`, missBar(m)) }], r.models, { scroll: false }));
-  out.replaceChildren(strip, grid(c1), grid(c2, c3), grid(cM));
+  const rows = [strip, grid(c1), grid(c2, c3), grid(cM)];
+  const bz = r.bermudan;
+  if (bz && !bz.error) {
+    const eu = bz.european, be = bz.bermudan, wait = be.pde - eu.exact, side = r.payer ? "above" : "below";
+    const [cB, bB] = card("If the right could be used on every yearly reset", el("span", {}, "A ", term("Bermudan", "bermudan"), ` option: the same right, usable on each of ${be.dates} reset dates into the swap that remains, priced by the Hull-White model calibrated on ${nice(bz.calibrated_on)}.`), "c12");
+    bB.append(headline(money(be.pde), `for the right on every reset, against ${money(eu.exact)} on the first date only`, chip(`waiting is worth ${money(wait)}`, "plain")));
+    const fwdLine = bz.boundary.map(() => r.forward_rate);
+    line(bB, { labels: bz.boundary.map((x) => nice(x.date)), series: [{ name: "Exercise level", color: cv("--s1"), values: bz.boundary.map((x) => x.rate_pct) },
+      { name: "Today's rate", color: cv("--muted"), values: fwdLine }], yfmt: (y) => `${y.toFixed(2)}%`, h: 220 });
+    bB.append(el("div", { class: "takeaway" }, el("b", { text: "Reading it: " }), `on each date, using the right is better than waiting only if the swap rate then is ${side} the line. The line moves toward today's rate as fewer dates remain, because there is less left to wait for.`),
+      more("Two engines, one answer", table([{ h: "", sr: "Price", wrap: 1, f: (x) => x[0] }, { h: "First date only", n: 1, f: (x) => x[1] }, { h: "Every reset", n: 1, f: (x) => x[2] }],
+        [["Direct integration (exact for one date)", money(eu.exact), "n/a"], [`PDE, Crank-Nicolson, ${bz.grid} points × ${num(bz.time_steps)} steps`, money(eu.pde), money(be.pde)],
+         [`Monte Carlo, Longstaff-Schwartz, ${num(bz.paths)} paths`, `${money(eu.mc)} ± ${money(eu.mc_stderr)}`, `${money(be.mc)} ± ${money(be.mc_stderr)}`]], { scroll: false }),
+        el("p", { class: "note", text: `Model: pull-back speed ${bz.speed}, short-rate volatility ${bz.sigma_bp} bp a year, fitted to that day's real option trades. Its first-date price is the model's own and can differ from the market premium above. Monte Carlo fits its exercise rule on one set of paths and prices on another, so it sits slightly below the PDE: a rule learned from samples can only lose value. ` },
+          el("a", { href: "#accuracy", text: "See the engine checks" }))));
+    rows.push(grid(cB));
+  }
+  out.replaceChildren(...rows);
 }
 
 // ================================================================ Volatility
@@ -639,7 +686,7 @@ async function lab() {
 
 // ================================================================ Accuracy
 async function accuracy() {
-  const [s, extra] = await Promise.all([api("/api/scorecard"), api("/api/insights").catch(() => ({}))]), fu = extra.futures, sw = s.swaps, op = s.options, rk = s.risk, v = s.validation, o = sw.overall;
+  const [s, extra, ec] = await Promise.all([api("/api/scorecard"), api("/api/insights").catch(() => ({})), api("/api/engine-checks").catch(() => null)]), fu = extra.futures, sw = s.swaps, op = s.options, rk = s.risk, v = s.validation, o = sw.overall;
   const kv = (rows) => el("div", { class: "kv" }, rows.flatMap(([a, b]) => [el("span", { text: a }), el("span", { text: b })]));
   const kp = el("div", { class: "kpis" },
     kpi("Typical miss, model, all trades", `${o.filter.median_bp.toFixed(2)} bp`, `95 in 100 trades within ${o.filter.p95_bp.toFixed(2)} bp`),
@@ -754,6 +801,23 @@ async function accuracy() {
           { h: "Daily changes move together", lo: 1, n: 1, f: (x) => (x.moves_together == null ? "n/a" : lvl(x.moves_together, 2)) }, { h: "", sr: "Reading", f: (x) => (Math.abs(x.moves_together) < 0.3 ? chip("level only", "warn") : chip("tracks", "good")) }], op2.vol.by_length, { scroll: false })));
       futRows.push(grid(cO));
     }
+  }
+  if (ec && !ec.error) {
+    const cv_ = ec.convergence, bpS = (x) => `${(x * 1e4).toFixed(4)} bp`;
+    const [cE, bE] = card("Option engines against the closed form", `PDE and Monte Carlo prices of a ${ec.case}, on every day the model was calibrated.`, "c7");
+    bE.append(headline(`${ec.pde_vs_exact.max_rel_error_pct}%`, `largest gap between the PDE and the exact price over ${ec.pde_vs_exact.days} real days (typical ${ec.pde_vs_exact.median_rel_error_pct}%)`, chip("agrees", "good")));
+    line(bE, { labels: ec.history.map((x) => nice(x.day)), ...monthTicks(ec.history.map((x) => x.day), 6), series: [{ name: "Every reset (PDE)", color: cv("--s1"), values: ec.history.map((x) => x.bermudan_bp) },
+      { name: "First date only (exact)", color: cv("--s2"), values: ec.history.map((x) => x.european_bp) }], yfmt: (y) => y.toFixed(0), h: 220 });
+    bE.append(el("p", { class: "note", text: "Premium in basis points of size, at the current rate as strike." }),
+      more("Convergence", table([{ h: "PDE grid", f: (x) => `${x.grid} × ${x.steps_per_year} a year` }, { h: "Error, bp of size", n: 1, f: (x) => bpS(x.error) }], cv_.pde, { scroll: false }),
+        table([{ h: "Monte Carlo paths", f: (x) => num(x.paths) }, { h: "Error, bp of size", n: 1, f: (x) => bpS(x.error) }, { h: "Standard error", n: 1, f: (x) => bpS(x.stderr) }], cv_.mc, { scroll: false }),
+        el("p", { class: "note", text: "PDE error falls with the grid; Monte Carlo error stays within about two standard errors, which halve for every fourfold rise in paths." })));
+    const [cS, bS] = card("What European prices cannot tell you", `Every row reproduces the same ${ec.swap_vol_bp} bp volatility, and so the same first-date price, with a different pull-back speed.`, "c5");
+    const lo_ = Math.min(...ec.by_speed.map((x) => x.bermudan_bp)), hi_ = Math.max(...ec.by_speed.map((x) => x.bermudan_bp));
+    bS.append(headline(`${(hi_ / lo_ * 100 - 100).toFixed(0)}%`, "spread in the every-reset price across speeds that fit the European equally well", chip("model risk", "warn")));
+    bars(bS, { cats: ec.by_speed.map((x) => `${x.speed}`), catColors: ec.by_speed.map((x) => (x.calibrated ? cv("--s1") : cv("--muted"))), series: [{ name: "Every-reset premium, bp of size", values: ec.by_speed.map((x) => x.bermudan_bp) }], yfmt: (x) => x.toFixed(0), valueLabels: true, h: 200 });
+    bS.append(el("div", { class: "takeaway" }, el("b", { text: "Why it matters: " }), "a faster pull-back makes rates on different dates less alike, so the right to choose the date is worth more. Desks set the speed from options on several dates, or from history; the blue bar is the speed fitted here."));
+    futRows.push(grid(cE, cS));
   }
   const [c9, b9] = card("Is the code right, and is it fast?", "Checked against an independent closing curve on real days.", "c12");
   if (v.referee) {
@@ -925,7 +989,7 @@ const routes = { overview, guide, today, trades, vol, markets, patterns, price, 
 const TITLES = { overview: "Overview", guide: "Guide and glossary", today: "Market · Today", trades: "Market · Trades", vol: "Market · Volatility", markets: "Market · Other markets", patterns: "Market · Patterns", price: "Tools · Price a trade", lab: "Tools · Model lab", saved: "Tools · Saved trades", risk: "Tools · Book risk", brief: "Tools · Daily brief", accuracy: "Proof · Accuracy", data: "Proof · Data quality" };
 async function route() {
   hideTip();
-  const name = routes[(location.hash || "#overview").slice(1)] ? (location.hash || "#overview").slice(1) : "overview";
+  const name = routes[(location.hash || "#today").slice(1)] ? (location.hash || "#today").slice(1) : "today";
   if (name !== "trades") { state.stream?.close(); state.stream = null; }
   for (const a of document.querySelectorAll("#nav a")) { if (a.getAttribute("href") === `#${name}`) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); }
   document.getElementById("crumb").textContent = TITLES[name];
@@ -952,7 +1016,7 @@ async function start() {
   });
   const dot = document.getElementById("livedot"), text = document.getElementById("livetext");
   const ping = async () => {
-    try { const l = await api("/api/live"); dot.className = `live ${l.status.last_error ? "err" : l.status.enabled ? "on" : ""}`; text.textContent = l.status.last_error ? "Live feed unreachable" : l.status.enabled ? "Live feed on" : "Live feed paused"; }
+    try { const l = await api("/api/live"); dot.className = `live ${l.status.last_error ? "err" : l.status.enabled ? "on" : ""}`; text.textContent = l.status.last_error ? "Closing data · live ticker offline" : l.status.enabled ? "Live" : "Closing data"; if (l.status.last_error) dot.className = "live"; }
     catch { dot.className = "live err"; text.textContent = "Server unreachable"; }
   };
   ping(); setInterval(ping, 30000);

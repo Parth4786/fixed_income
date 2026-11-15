@@ -6,6 +6,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 ## [Unreleased]
 
 ### Added
+- Bermudan swap options under Hull-White (`pricing/bermudan.py`, ADR 25), priced two independent ways. The PDE is Crank-Nicolson with Rannacher smoothing. The Monte Carlo is Longstaff-Schwartz on exact joint simulation of the factor and its integral, with the exercise rule fitted out of sample. Both are anchored to the exact European price: the PDE is within 0.022% at worst on 250 real calibrated days. Price an option now shows the every-reset price, the value of waiting and the exercise boundary by date. Accuracy shows convergence, the history and how much the Bermudan moves with mean reversion when the European is held fixed (11%).
 - Book risk screen (`treasury.py`): the six supervisory interest rate shocks of the Basel IRRBB standard as specified in the EBA's supervisory outlier test (sizes, maturity decay, steepener/flattener weights, post-shock floor), with full repricing; the 15%-of-Tier-1 outlier test; historical VaR and expected shortfall from six years of published curves; a 250-day VaR backtest with Basel's traffic-light zones.
 - A real book: the Federal Reserve's Treasury holdings, security by security (New York Fed, weekly), priced on the Fed's fitted zero-coupon Treasury curve: $3.78tn, duration 5.4 years, worst shock parallel up (−$361bn), 1-day VaR $27.7bn, backtest green.
 - C++ revaluation kernel (`cpp/revalue.cpp`, loaded through ctypes by `tapemark.fast`, built by `tools/build_cpp.py` and in CI): identical to the NumPy reference, about 2.6-3x faster on full-repricing VaR.
@@ -15,6 +16,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 - Inflation two ways (Other markets): inflation swap rates from public trades against TIPS breakevens from the Federal Reserve's fitted curve (`fed.breakevens`), same day and maturity, put on the same compounding. The gap averaged +9.2 bp at 10 years over 435 days.
 
 ### Changed
+- Third design pass, aimed at a reader who knows some fixed income. The app opens on Today, not on the pitch page (now "What this is" under About). Today leads with a curve monitor: every swap length and the 2s10s, 5s30s and 2s5s10s spreads, each with level, 1-day, 1-week and 1-month change, place in the past year's range, a 60-day trend, 3-month roll-down and the 3-month forward (`/api/monitor`). Card explanations moved behind an ⓘ button, which prints in full on the Daily brief. Numbers are set in IBM Plex Mono with tabular figures, cards are denser, and the data status reads "Closing data" instead of a red "unreachable". The 1-year forward chart is gone: the monitor's forward column and the Fed meeting path cover it.
 - Second independent design review (graded 7/10 before these changes): every remaining card now leads with a number, orange means only "what the model is compared with", swap lengths and gaps use one format, time axes tick on evenly spaced months, short cards no longer stretch, thin currencies are listed on one line instead of empty boxes.
 
 ### Fixed

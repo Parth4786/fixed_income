@@ -107,3 +107,23 @@ def test_insights_carry_the_flow_and_futures_studies(client):
         assert 0 <= c["release"]["branching"] < 1 and len(c["profile"]["minutes"]) == len(c["profile"]["release"])
     if r.get("futures"):
         assert r["futures"]["engine"]["a"]["max"] < 0.01                        # under $10 a contract, far below one price step
+
+
+def test_curve_monitor_is_consistent(client):
+    m = client.get("/api/monitor").json()
+    assert [r["length"] for r in m["rows"]][:3] == ["3m", "6m", "1y"] and len(m["rows"]) == 14
+    for r in m["rows"]:
+        assert r["lo"] - 1e-9 <= r["rate"] <= r["hi"] + 1e-9                     # today is inside the past year's range
+        assert 0 <= r["pctile"] <= 100 and len(r["trend"]) == 60
+    by = {r["length"]: r["rate"] for r in m["rows"]}
+    s = {x["name"]: x["level_bp"] for x in m["spreads"]}
+    assert s["2s10s"] == pytest.approx((by["10y"] - by["2y"]) * 100, abs=0.02)
+
+
+def test_option_has_bermudan_block(client):
+    r = client.post("/api/price/option", json={"expiry_years": 1, "swap_years": 5}).json()
+    b = r.get("bermudan")
+    if b is None:
+        pytest.skip("no Hull-White calibration in this data")
+    assert b["bermudan"]["pde"] >= b["european"]["exact"] * 0.999
+    assert abs(b["european"]["pde"] - b["european"]["exact"]) < 1e-3 * b["european"]["exact"]

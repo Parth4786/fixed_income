@@ -28,3 +28,4 @@ One file per decision. A decision is never edited after it is accepted; it is su
 | 22 | [Every card leads with one number, and the screens are checked by machine](0022-every-card-leads-with-one-number-and-the-screens-are-checked-by-machine.md) | Accepted |
 | 23 | [The short end steps on Fed meeting dates, and is kept beside the smooth curve](0023-the-short-end-steps-on-fed-meeting-dates-and-is-kept-beside-the-smooth-curve.md) | Accepted |
 | 24 | [Risk frameworks run on real books, and a C++ kernel does the repricing](0024-risk-frameworks-run-on-real-books-and-a-cpp-kernel-does-the-repricing.md) | Accepted |
+| 25 | [Bermudan options are priced two ways and anchored to the exact European](0025-bermudan-options-are-priced-two-ways-and-anchored-to-the-exact-european.md) | Accepted |

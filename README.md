@@ -30,6 +30,7 @@ Out of sample, 7 Feb 2025 to 13 Nov 2026, on real US dollar SOFR swap trades.
 | Does modelling Fed meetings help? | A short end that steps on meeting dates cuts the miss on forward swaps under a year from 1.10 to 1.07 bp (reliable, t 3.1) and makes no difference beyond a year: most of the remaining error is in the curve points, not their shape |
 | What do inflation markets say? | Inflation swaps price about 9 bp more inflation than TIPS breakevens at 10 years (435 days, same-day comparison): the usual liquidity gap, shown on Other markets |
 | Can it measure bank interest rate risk the way regulators ask? | Yes, on a real published book: the Fed's $3.78tn Treasury portfolio under the six Basel/EBA shocks (worst −$361bn) with full-repricing VaR ($27.7bn, 1 day, 99%) backtested green, run by a C++ kernel that matches NumPy exactly |
+| Can it price options with many exercise dates? | Yes: a Bermudan swap option under Hull-White, priced by a finite-difference PDE and by Longstaff-Schwartz Monte Carlo. With one date allowed, the PDE is within 0.022% of the exact price on 250 real calibrated days. Holding the European price fixed, mean reversion alone moves the Bermudan by 11%: the model risk is measured, not assumed away |
 | Where does it lose? | Swap options: the last similar trade (4.0 bp of volatility) beats the fitted surface (11.1) and a Hull-White rate model (16.0). Short forward-starting swaps are a weak spot (1.1 bp) |
 
 The full report is written to `data/reports/model_validation.md` by `tapemark score`.
@@ -39,13 +40,13 @@ The full report is written to `data/reports/model_validation.md` by `tapemark sc
 | Part | What it does |
 |---|---|
 | Data pipeline | 733 daily files, 4.1 million reports, corrections and cancellations applied, one recorded reason for every excluded trade |
-| Pricing library | Calendar, discount curve, swap pricing, normal-model option pricing, risk by curve point (bump and automatic differentiation) |
+| Pricing library | Calendar, discount curve, swap pricing, normal-model option pricing, risk by curve point (bump and automatic differentiation), Bermudan options by PDE and Monte Carlo |
 | Curve model | A Kalman filter that updates the whole curve with each trade and predicts the next one |
 | Scoring | Walk-forward tests, baselines, significance tests, calibrated uncertainty bands, sensitivity and stress-day analysis |
 | Research | Cross-market correlations, implied against realised volatility, rich/cheap screen, drivers of the gap to fair |
 | Order flow | A self-exciting (Hawkes) model of trade arrivals around data releases; trade direction inferred from the fair rate and tested as a predictor; a test of late-day drift |
 | Swap futures | An Eris SOFR swap futures engine (price = 100 + value to come + amounts paid - interest on margin) checked against exchange settlements; a margin rule fitted to published margins; margin funding cost of a swap against the future |
-| Web app | Twelve screens for traders and analysts, including multi-model pricing and a model lab; saved trades; a live feed from the public ticker |
+| Web app | Opens on a curve monitor (level, changes, 1-year range, roll-down and forward for every swap length and the main spreads); multi-model pricing of swaps, swap options and Bermudans; book risk; a model lab; saved trades; a live feed from the public ticker |
 
 ## Run it
 

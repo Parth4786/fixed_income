@@ -213,7 +213,29 @@ $$-\ln DF(T) = \sum_k r_k\, \frac{d_k(T)}{360}, \qquad \min_r \sum_k (r_{k+1} - 
 
 Solved in closed form (equality-constrained least squares). **Assumes:** decisions take effect the day after a scheduled meeting; between meetings the rate is flat. **Measured:** forward swaps under a year 1.10 → 1.07 bp (t 3.1); one to two years no reliable difference.
 
-## 21. Scores
+## 21. Bermudan swap options: PDE and Monte Carlo
+
+Hull-White in its centred form: $r(t) = x(t) + \varphi(t)$, $dx = -a\,x\,dt + \sigma\,dW$, $x(0)=0$. With $B(\tau) = (1-e^{-a\tau})/a$,
+
+$$V(t) = \frac{\sigma^2}{2a}\left(1-e^{-2at}\right), \qquad W(\tau) = \frac{\sigma^2}{a^2}\left[\tau - 2B(\tau) + \frac{1-e^{-2a\tau}}{2a}\right]$$
+
+$V$ is the variance of $x(t)$ and $W(\tau)$ the variance of $\int x$ over $\tau$. Fitting today's curve exactly gives
+
+$$e^{-\int_0^t \varphi} = DF(t)\,e^{-W(t)/2}, \qquad P(t,T \mid x) = \frac{DF(T)}{DF(t)}\exp\!\Big(-B(T-t)\,x + \tfrac12\big[W(T-t) - W(T) + W(t)\big]\Big)$$
+
+A test checks this against the textbook form. A Bermudan payer may enter the remaining annual swap on each reset date $T_k$; its value there is $\max(\text{exercise}_k,\ \text{continuation}_k)$.
+
+**PDE.** $u_t - a x\,u_x + \tfrac12\sigma^2 u_{xx} - x\,u = 0$, stepped back by Crank-Nicolson on 201 points in $x$ ($\pm 7$ standard deviations) at 52 steps a year. The $\varphi$ part depends on time only and is applied exactly between steps. After every exercise date, four implicit quarter-steps (Rannacher) damp the oscillation the payoff's kink causes in Crank-Nicolson.
+
+**Monte Carlo.** $x$ and $\int x$ are simulated exactly, jointly Gaussian, from one date to the next, with $\text{Cov} = \sigma^2(1-e^{-a\Delta})^2/(2a^2)$; the discount on each path is $DF(t)\,e^{-W(t)/2 - \int x}$. Longstaff-Schwartz regresses later cash on $(1, x, x^2, \text{exercise value})$ over in-the-money paths. The rule is learnt on one set of paths and applied to an independent second set, so the estimate is a lower bound. Antithetic pairs give the standard error.
+
+**Measured.** With one date allowed, the PDE matches direct integration to 0.022% at worst over 250 calibrated days (typical 0.0006%). Monte Carlo is within two standard errors. On 13 Nov 2026, a 1-year right into the 10-year swap at the current rate: 329 bp of notional on the first date only, 615 bp on every reset.
+
+**Model risk, measured.** Seven pull-back speeds were each refitted to the same 109 bp European volatility, so all seven give the same European price. Their Bermudan prices span 612 to 677 bp, an 11% spread. European prices alone do not pin the speed down.
+
+**Assumes:** one factor; constant $a$ and $\sigma$, fitted to that day's option trades rather than to the co-terminal set a desk would use; single curve; exercise into the remaining annual fixed leg with the first date's lag.
+
+## 22. Scores
 
 | Product | Score |
 |---|---|
