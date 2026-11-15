@@ -157,3 +157,20 @@ def test_hull_white_calibration_recovers_known_parameters():
     vols = 0.011 * factors[:, 1]
     k, sigma, err = hullwhite.calibrate(factors, vols)
     assert k == 1 and sigma == pytest.approx(0.011) and err < 1e-12
+
+
+
+def test_meeting_steps_keep_the_curve_points_and_only_move_after_meetings():
+    from tapemark.models import meeting_curve as mc
+    asof = "2026-11-13"
+    c = Curve.from_par(asof, [0.25, 0.5, 1, 2, 5, 10, 30], [3.95, 3.90, 3.80, 3.70, 3.75, 4.0, 4.3])
+    s = mc.stepped(c)
+    knots = c.days[(c.days > 0) & (c.days <= 731)]
+    when = np.datetime64(asof, "D") + knots.astype("timedelta64[D]")
+    assert np.allclose(np.log(s.df(when)), np.log(c.df(when)), atol=1e-12)          # every short-end point is reproduced exactly
+    far = np.datetime64("2036-11-13")
+    assert abs(float(s.df(np.array([far]))[0]) - float(c.df(np.array([far]))[0])) < 1e-12   # beyond two years nothing changes
+    path = mc.overnight_path(c, 1.5)
+    steps = [np.datetime64(x["from"]) for x in path[1:]]
+    assert all(d - 1 in set(mc.MEETINGS.tolist()) or d - 1 in mc.MEETINGS for d in steps)  # the rate changes only the day after a meeting
+    assert 2.5 < path[0]["rate_pct"] < 5.0

@@ -26,3 +26,4 @@ One file per decision. A decision is never edited after it is accepted; it is su
 | 20 | [Trade clustering is measured against the hour's usual course](0020-trade-clustering-is-measured-against-the-hours-usual-course.md) | Accepted |
 | 21 | [The futures engine and the margin rule are checked against what the exchange publishes](0021-the-futures-engine-and-margin-rule-are-fitted-to-what-the-exchange-publishes.md) | Accepted |
 | 22 | [Every card leads with one number, and the screens are checked by machine](0022-every-card-leads-with-one-number-and-the-screens-are-checked-by-machine.md) | Accepted |
+| 23 | [The short end steps on Fed meeting dates, and is kept beside the smooth curve](0023-the-short-end-steps-on-fed-meeting-dates-and-is-kept-beside-the-smooth-curve.md) | Accepted |

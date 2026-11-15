@@ -15,6 +15,7 @@ from scipy.special import ndtr
 
 from tapemark.clean.swaps import SWAP_RULES
 from tapemark.clean.swaptions import OPTION_RULES
+from tapemark.models import meeting_curve
 from tapemark.models.curve_filter import NODES
 from tapemark.paths import CLEAN, DATA
 from tapemark.pricing import eris_futures, hullwhite, risk
@@ -161,7 +162,7 @@ class Store:
         traded = whole.groupby(whole["tenor_years"].round().astype(int))["fixed_rate_pct"].agg(["median", "size", "min", "max"]).reset_index()
         outside = self.par.loc[ts].tolist() if ts in self.par.index else None
         return {"day": str(d), "nodes": NODES.tolist(), "ours": [_r(v, 4) for v in x], "previous": [_r(v, 4) for v in self.state(p)] if p is not None else None,
-                "outside": outside, "forwards": fwd,
+                "outside": outside, "forwards": fwd, "meetings": meeting_curve.overnight_path(c, 1.5),
                 "traded": [{"length": int(r.tenor_years), "median": _r(r["median"], 4), "trades": int(r["size"]), "low": _r(r["min"], 4), "high": _r(r["max"], 4)} for _, r in traded.iterrows()]}
 
     def history(self) -> dict:
@@ -245,6 +246,21 @@ class Store:
             if when is not None and pd.Timestamp(when) in self.par.index:
                 rate = float(par_rate(Curve.from_par(when, NODES, self.par.loc[pd.Timestamp(when)].values), start, end)[0])
                 models.append({"name": name, "used": False, "rate": _r(rate, 4), "miss_bp": miss[key]["median_bp"], "how": "Known only after the close" if key == "same_close" else "Stale by a day"})
+        fwd = self.summary["swap_summary"].get("forwards", {})
+        fs = fwd.get("meeting_steps")
+        forward = int((start - spot_start(d)).astype(int)) > 3
+        if forward and fwd:                             # judge every model on forward swaps when the swap is a forward one
+            models[0]["miss_bp"] = fwd["overall"]["filter"]["median_bp"]
+            models[0]["how"] = "One curve, updated by every trade; miss measured on forward-starting swaps"
+            for m in models:                            # the closing curves too, on the same forward swaps
+                key = "same_close" if m["name"].startswith("Today's closing") else "prev_close" if m["name"].startswith("Yesterday's closing") else None
+                if key and fwd["overall"].get(key):
+                    m["miss_bp"] = fwd["overall"][key]["median_bp"]
+        if fs and forward and (end - d).astype(int) <= 730:
+            grp = fs["under 1y long" if tenor < 0.95 else "1y to 2y long"]
+            models[0]["miss_bp"] = grp["smooth_bp"]
+            models.insert(1, {"name": "Steps on Fed meeting dates", "used": False, "rate": _r(float(par_rate(meeting_curve.stepped(c), start, end)[0]), 4),
+                              "miss_bp": grp["steps_bp"], "how": f"Same curve points, overnight rate changing only after Fed meetings; measured on forward swaps ({grp['steps_bp']:.2f} against {grp['smooth_bp']:.2f} bp)"})
         for m in models:
             m["your_gap_bp"] = _r((fixed - m["rate"]) * 100, 2)
         size = self.scores[self.scores["scored"]].tail(60000)

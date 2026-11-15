@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from tapemark.models.curve_filter import NODES, CurveFilter, trailing_covariance
+from tapemark.models.meeting_curve import stepped
 from tapemark.paths import CLEAN, DATA
 from tapemark.pricing.curve import Curve, par_rate
 from tapemark.sources import dtcc, eris
@@ -171,12 +172,17 @@ def score_forwards() -> pd.DataFrame:
     snap_ts = snaps["ts"].values.astype("datetime64[s]")
     snap_x = snaps[[str(t) for t in NODES]].values
     which = np.searchsorted(snap_ts, ts, side="right") - 1
-    model = np.full(len(fw), np.nan)
+    model, steps = np.full(len(fw), np.nan), np.full(len(fw), np.nan)
+    near = (mat - day).astype(int) <= 730          # the step curve only changes the first two years
     for s in np.unique(which[which >= 0]):
         m = which == s
         asof = day[m][0]
         curve = Curve.from_par(asof, NODES, snap_x[s])
         model[m] = par_rate(curve, eff[m], mat[m])
+        mn = m & near
+        if mn.any():
+            steps[mn] = par_rate(stepped(curve), eff[mn], mat[mn])
+    steps = np.where(near, steps, model)
 
     # Outside curve, same day and previous day, from its full discount-factor file.
     same, prev = np.full(len(fw), np.nan), np.full(len(fw), np.nan)
@@ -191,7 +197,7 @@ def score_forwards() -> pd.DataFrame:
             prev[m] = par_rate(prev_curve, eff[m], mat[m])
         prev_curve = curve
     out = fw[["trade_id", "exec_ts", "trade_date", "effective", "maturity", "tenor_years", "start_lag_bdays", "fixed_rate_pct", "notional"]].copy()
-    out["filter"], out["same_close"], out["prev_close"] = model, same, prev
+    out["filter"], out["same_close"], out["prev_close"], out["meeting_steps"] = model, same, prev, steps
     out.to_parquet(RESULTS / "swap_forward_scores.parquet", index=False)
     return out
 
@@ -232,6 +238,22 @@ def diebold_mariano(loss_a: pd.Series, loss_b: pd.Series, by_day: pd.Series, lag
         var += 2 * (1 - k / (lags + 1)) * (c[k:] @ c[:-k]) / n
     t = mean / np.sqrt(var / n)
     return {"days": int(n), "mean_diff_bp": round(float(mean * 100), 4), "t_stat": round(float(t), 2)}
+
+
+def _meeting_test(f: pd.DataFrame) -> dict:
+    """Smooth short end against steps on Fed meeting dates, on forward swaps maturing within two years.
+
+    Same trades, same moment, same curve points; only the shape between the points differs. The comparison is
+    paired by trading day: the mean daily difference in absolute miss and its t-statistic.
+    """
+    out = {}
+    for name, g in (("under 1y long", f[f["tenor_years"] < 0.95]), ("1y to 2y long", f[f["tenor_years"] >= 0.95])):
+        e0 = (g["filter"] - g["fixed_rate_pct"]).abs() * 100
+        e1 = (g["meeting_steps"] - g["fixed_rate_pct"]).abs() * 100
+        d = (e1 - e0).groupby(g["trade_date"]).mean()
+        out[name] = {"trades": int(len(g)), "days": int(len(d)), "smooth_bp": round(float(e0.median()), 3), "steps_bp": round(float(e1.median()), 3),
+                     "daily_diff_bp": round(float(d.mean()), 4), "t": round(float(d.mean() / (d.std(ddof=1) / np.sqrt(len(d)))), 2), "days_better_pct": round(float(100 * (d < 0).mean()), 1)}
+    return out
 
 
 def summarise() -> dict:
@@ -278,5 +300,8 @@ def summarise() -> dict:
             "by_start": {str(b): {m: _stats(ferr[m][lag == b]) for m in fm} for b in lag.cat.categories},
             "by_length": {str(b): {m: _stats(ferr[m][length == b]) for m in fm} for b in length.cat.categories},
         }
+        if "meeting_steps" in f:
+            near = (f["maturity"] - f["trade_date"]).dt.days <= 730
+            out["forwards"]["meeting_steps"] = _meeting_test(f[near])
     (RESULTS / "swap_summary.json").write_text(json.dumps(out, indent=1))
     return out

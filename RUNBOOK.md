@@ -86,7 +86,7 @@ The interactive API reference is at <http://127.0.0.1:8765/docs>.
 |---|---|
 | Overview | What the product is, its three headline results, and four pricing methods ranked by real trades |
 | Guide and glossary | How to read the screens; every term in plain words (also shown on hover) |
-| Today | Three written sentences on the day, then where rates closed, what moved, where risk traded, trades furthest from fair |
+| Today | Three written sentences on the day, then where rates closed, what moved, where risk traded, trades furthest from fair, the overnight rate priced after each Fed meeting |
 | Trades | Every clean trade with the fair rate just before it, the gap in basis points and dollars, a flag when unusual; the live feed |
 | Volatility | Volatility grid from real premiums, recent option trades, history |
 | Other markets | Swap curves in other currencies, expected inflation, inflation swaps against TIPS breakevens, swap rates against Treasuries, funding rate and pressure gauge |

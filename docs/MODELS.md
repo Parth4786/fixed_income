@@ -205,7 +205,15 @@ Standard errors clustered by day. $b = 1.07$ bp per \$1bn (partly built in, sinc
 
 **Assumes:** a trade above fair was initiated by the payer. **Limits:** the record has no side and caps large sizes.
 
-## 20. Scores
+## 20. Steps on Fed meeting dates
+
+Over the first two years the overnight rate is constant between meetings: $r_k$ on segment $k$, with $d_k(T)$ the days of segment $k$ before $T$.
+
+$$-\ln DF(T) = \sum_k r_k\, rac{d_k(T)}{360}, \qquad \min_r \sum_k (r_{k+1} - r_k)^2 \ 	ext{ subject to } \ DF(T_j) = DF^{	ext{curve}}(T_j) \ 	ext{for every short-end point } T_j$$
+
+Solved in closed form (equality-constrained least squares). **Assumes:** decisions take effect the day after a scheduled meeting; between meetings the rate is flat. **Measured:** forward swaps under a year 1.10 → 1.07 bp (t 3.1); one to two years no reliable difference.
+
+## 21. Scores
 
 | Product | Score |
 |---|---|

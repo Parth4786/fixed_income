@@ -148,10 +148,15 @@ function drawLine(host, { series, labels, yfmt = (v) => v.toFixed(2), h = 230, x
       d += `${pen ? "L" : "M"}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`; pen = true; last = [i, v];
     });
     if (x.markers) {
+      let lastRight = -Infinity;                       // a value label is skipped if it would touch the previous one
       x.values.forEach((v, i) => {
         if (v == null || !isFinite(v)) return;
         s("circle", { cx: X(i), cy: Y(v), r: 5, fill: x.color, stroke: cv("--surface"), "stroke-width": 2 }, svg);
-        txt(svg, X(i), Y(v) - 10, yfmt(v), { "text-anchor": i === 0 ? "start" : i === n - 1 ? "end" : "middle", class: "lab" });
+        const label = yfmt(v), w = label.length * 6.2, anchor = i === 0 ? "start" : i === n - 1 ? "end" : "middle";
+        const left = anchor === "start" ? X(i) : anchor === "end" ? X(i) - w : X(i) - w / 2;
+        if (left < lastRight + 4) return;
+        txt(svg, X(i), Y(v) - 10, label, { "text-anchor": anchor, class: "lab" });
+        lastRight = left + w;
       });
     } else s("path", { d, fill: "none", stroke: x.color, "stroke-width": 2, "stroke-dasharray": x.dash ? "5 4" : null, "stroke-linejoin": "round" }, svg);
     if (last && endLabels) ends.push({ y: Y(last[1]), name: x.name, x: X(last[0]) });

@@ -201,13 +201,20 @@ async function today() {
   const fw = c.forwards.filter((x) => [0, 1, 2, 3, 5, 7, 10].includes(x.starts_in_years));
   line(bFwd, { labels: fw.map((x) => (x.starts_in_years ? `in ${x.starts_in_years}y` : "today")), series: [{ name: "1-year rate", color: cv("--s1"), values: fw.map((x) => x.one_year_rate), markers: true }],
     yfmt: (v) => `${v.toFixed(2)}%`, endLabels: false, xticks: fw.map((_, i) => i), h: 240 });
+  const path = (c.meetings || []).filter((x) => x.from > o.day);
+  const [cFed, bFed] = card("What the market prices for each Fed meeting", "The overnight rate implied for the period after each scheduled meeting, from today's curve. Read as the market's average expectation, not a forecast.", "c6");
+  if (path.length) {
+    const now = o.sofr ? o.sofr.rate : null, end = path.at(-1);
+    bFed.append(headline(now == null ? pct(end.rate_pct, 2) : bp((end.rate_pct - now) * 100, 0), now == null ? `after ${nice(end.from)}` : `priced by ${nice(end.from)} against today's overnight rate of ${pct(now, 2)}`));
+    line(bFed, { labels: path.map((x) => nice(x.from).replace(/^\d+ /, "")), series: [{ name: "Overnight rate after the meeting", color: cv("--s1"), values: path.map((x) => x.rate_pct), markers: true }], yfmt: (v) => `${v.toFixed(2)}%`, endLabels: false, xticks: path.map((_, i) => i), h: 240 });
+  }
   const [cHist, bHist] = card("Rates over the past two years", "Model closing rate at three lengths.", "c6");
   line(bHist, { labels: h.days.map(nice), ...monthTicks(h.days), yfmt: (v) => `${v.toFixed(2)}%`, h: 240, endLabels: false, series: [{ name: "2y", color: cv("--s1"), values: h.rates["2y"] }, { name: "10y", color: cv("--s3"), values: h.rates["10y"] }, { name: "30y", color: cv("--muted"), values: h.rates["30y"] }] });
-  const [cShape, bShape] = card("How the curve usually moves", `Three patterns explain ${Math.round(mk.pca.share.reduce((a, b) => a + b, 0) * 100)}% of daily moves over the past year (${mk.pca.share.map((x) => `${Math.round(x * 100)}%`).join(", ")}). Each line shows how much each length moves in that pattern.`, "c12");
+  const [cShape, bShape] = card("How the curve usually moves", `Three patterns explain ${Math.round(mk.pca.share.reduce((a, b) => a + b, 0) * 100)}% of daily moves over the past year (${mk.pca.share.map((x) => `${Math.round(x * 100)}%`).join(", ")}). Each line shows how much each length moves in that pattern.`, "c6");
   line(bShape, { labels: NODE_LABELS, xticks: NODE_TICKS, yfmt: (v) => v.toFixed(2), h: 220, zero: true, endLabels: false,
     series: [{ name: "All lengths together", color: cv("--s1"), values: mk.pca.shapes[0] }, { name: "Short against long", color: cv("--s3"), values: mk.pca.shapes[1] }, { name: "Middle against the ends", color: cv("--muted"), values: mk.pca.shapes[2] }] });
 
-  page(`Today: ${nice(o.day)}`, "Where dollar swap rates closed, what moved, where risk changed hands, and which trades stood out.", row1, row2, grid(cBrief), grid(cCurve, cMove), grid(cFlow, cSur), grid(cFwd, cHist), grid(cShape));
+  page(`Today: ${nice(o.day)}`, "Where dollar swap rates closed, what moved, where risk changed hands, and which trades stood out.", row1, row2, grid(cBrief), grid(cCurve, cMove), grid(cFlow, cSur), grid(cFwd, cFed), grid(cHist, cShape));
 }
 
 // ================================================================ Trades
@@ -651,6 +658,7 @@ async function accuracy() {
   const [c2, b2] = card("Swaps that start in the future", "Never used to fit anything, so a fully held-out test.", "c5 tight");
   b2.append(headline(`${fw.overall.filter.median_bp.toFixed(2)} bp`, `typical miss on ${num(fw.overall.filter.n)} held-out swaps, against ${fw.overall.prev_close.median_bp.toFixed(2)} bp for the prior-day close`, chip("holds", "good")),
     el("div", { class: "takeaway" }, el("b", { text: "Weak spot: " }), `forwards shorter than a year (${fw.by_length[Object.keys(fw.by_length)[0]].filter.median_bp.toFixed(2)} bp). The curve is smooth between yearly points and cannot see central bank meeting dates.`),
+    ...(fw.meeting_steps ? [el("p", { class: "note", text: `Steps on Fed meeting dates, same curve points: ${Object.entries(fw.meeting_steps).map(([k, x]) => `${k} ${x.smooth_bp.toFixed(2)} → ${x.steps_bp.toFixed(2)} bp (better on ${x.days_better_pct.toFixed(0)}% of ${x.days} days, t ${Math.abs(x.t).toFixed(1)})`).join("; ")}. ${Object.entries(fw.meeting_steps).map(([k, x]) => `${k}: ${Math.abs(x.t) >= 2 && x.daily_diff_bp < 0 ? "a small, reliable gain" : "no reliable difference"}`).join("; ")}. Most of the short-end miss comes from the curve points themselves, not their shape.` })] : []),
     more("By start and by length", table([{ h: "Group", f: (r) => r[0] }, { h: "Trades", lo: 1, n: 1, f: (r) => num(r[1].filter.n) }, { h: "Model", n: 1, f: (r) => `${r[1].filter.median_bp.toFixed(2)} bp` }, { h: "Yesterday", n: 1, f: (r) => `${r[1].prev_close.median_bp.toFixed(2)} bp` }],
       [["All", fw.overall], ...Object.entries(fw.by_start), ...Object.entries(fw.by_length)], { scroll: false })));
 
