@@ -809,24 +809,98 @@ async function saved() {
     : `Right to ${i.terms.payer ? "pay" : "receive"} ${i.terms.strike ? `${(+i.terms.strike).toFixed(4)}%` : "at the money"}, ${i.terms.expiry_years}y option on a ${i.terms.swap_years}y swap, ${size(i.terms.notional)}`);
   const nowCell = (i) => (i.now.error ? el("span", { class: "err", text: i.now.error }) : i.kind === "swap" ? `Fair ${pct(i.now.fair_rate, 4)} · gap ${bp(i.now.gap_bp, 1)} · value ${money(i.now.value, true)}` : `Model premium ${money(i.now.model_premium)}${i.now.vol_gap_bp != null ? ` · volatility gap ${bp(i.now.vol_gap_bp)}` : ""}`);
   const [c, b] = card("Your saved trades", "Kept between sessions. Each one is repriced on the latest day whenever this page opens.", "c12");
-  if (!items.length) {
-    const examples = async () => {
-      const fair = (await api("/api/price/swap", { method: "POST", body: { years: 10, notional: 1e8, pay_fixed: true, day: state.day } })).fair_rate;
-      for (const body of [{ kind: "swap", label: "Example: 10-year, 3 bp above fair", terms: { years: 10, rate: (fair + 0.03).toFixed(4), notional: 100000000, pay_fixed: true } },
-        { kind: "swap", label: "Example: 2-year at fair", terms: { years: 2, rate: null, notional: 250000000, pay_fixed: false } },
-        { kind: "option", label: "Example: 1-year option on a 10-year swap", terms: { expiry_years: 1, swap_years: 10, strike: null, notional: 100000000, payer: true, premium: null } }]) await api("/api/blotter", { method: "POST", body });
-      saved();
-    };
-    b.append(el("p", {}, "Nothing saved yet. ", el("a", { href: "#price", text: "Price a trade" }), " and press “Save to Saved trades”, or start from examples."),
-      el("div", {}, el("button", { class: "btn ghost", type: "button", text: "Add three example trades", onclick: examples })));
-  }
-  else b.append(table([{ h: "Name", f: (i) => i.label || "(unnamed)" }, { h: "Trade", wrap: 1, f: describe }, { h: `Now, on ${nice(items[0].now.day || state.day)}`, wrap: 1, f: nowCell },
-    { h: "Status", f: (i) => (i._status = el("select", { "aria-label": "Status" }, ["watching", "quoted", "done", "passed"].map((x) => el("option", { value: x, text: x, selected: x === i.status })))) },
-    { h: "Note", f: (i) => (i._note = el("input", { value: i.note, "aria-label": "Note", style: "width:200px" })) },
+  if (!items.length) b.append(el("p", {}, "Nothing saved yet. ", el("a", { href: "#price", text: "Price a trade" }), " and press “Save to Saved trades”."));
+  else b.append(table([{ h: "Name", wrap: 1, f: (i) => i.label || "(unnamed)" }, { h: "Trade", wrap: 1, f: describe }, { h: `Now, on ${nice(items[0].now.day || state.day)}`, wrap: 1, f: nowCell },
+    { h: "Status", lo: 1, f: (i) => (i._status = el("select", { "aria-label": "Status" }, ["watching", "quoted", "done", "passed"].map((x) => el("option", { value: x, text: x, selected: x === i.status })))) },
+    { h: "Note", lo: 1, f: (i) => (i._note = el("input", { value: i.note, "aria-label": "Note", style: "width:200px" })) },
     { h: "", f: (i) => el("span", { class: "row-actions" },
         el("button", { class: "btn ghost sm", type: "button", text: "Update", onclick: async () => { await api(`/api/blotter/${i.id}`, { method: "PUT", body: { kind: i.kind, label: i.label, terms: i.terms, note: i._note.value, status: i._status.value } }); saved(); } }),
         el("button", { class: "btn danger sm", type: "button", text: "Delete", onclick: async () => { await api(`/api/blotter/${i.id}`, { method: "DELETE" }); saved(); } })) }], items));
   page("Saved trades", "Trades you are watching or have quoted, revalued against the latest curve.", grid(c));
+}
+
+// ================================================================ Book risk
+async function bookrisk() {
+  const tier = state.tier1 || "";
+  const [r, fb] = await Promise.all([api(`/api/book-risk${tier ? `?tier1=${tier * 1e6}` : ""}`), api("/api/fed-book").catch(() => null)]);
+  const bn = (x) => `${x < 0 ? "−" : x > 0 ? "+" : ""}$${(Math.abs(x) / 1e9).toFixed(1)}bn`;
+  const fedRows = [];
+  if (fb && !fb.error) {
+    const [f1, g1] = card("A real book: the Federal Reserve's Treasury portfolio", `Every Treasury bill, note and bond the Fed held on ${nice(fb.holdings_day)} (New York Fed, published weekly), priced on the Fed's fitted Treasury curve of ${nice(fb.curve_day)}. ${num(fb.securities)} securities, ${(fb.par / 1e12).toFixed(2)} trillion dollars of face value.`, "c12");
+    g1.append(el("div", { class: "kpis" }, kpi("Value", `$${(fb.value / 1e12).toFixed(2)}tn`, `duration ${fb.duration_years.toFixed(1)} years`), kpi(term("Gain per basis point rise", "perbp"), bn(fb.dv01), "every rate up 1 bp"),
+      kpi("1-day VaR, 99%", bn(fb.one_day.var99).replace("+", ""), `full repricing on ${num(fb.one_day.days)} real days since ${nice(fb.from).replace(/^\d+ /, "")}`), kpi("VaR backtest", `${fb.backtest.exceptions} of ${fb.backtest.days}`, `${fb.backtest.zone} zone; about ${fb.backtest.expected} expected`)));
+    const worst = fb.irrbb.worst;
+    g1.append(headline(bn(worst.delta_eve), `in the worst supervisory shock (${worst.scenario.toLowerCase()})`, chip(fb.backtest.zone === "green" ? "VaR backtest green" : `VaR backtest ${fb.backtest.zone}`, fb.backtest.zone === "green" ? "good" : "warn")));
+    bars(g1, { cats: fb.irrbb.rows.map((x) => x.scenario.replace("rates ", "")), series: [{ name: "Change in value", values: fb.irrbb.rows.map((x) => x.delta_eve) }], catColors: fb.irrbb.rows.map((x) => (x.delta_eve < 0 ? cv("--crit") : cv("--good"))), yfmt: (x) => bn(x), valueLabels: true, h: 240 });
+    const lo = Object.entries(fb.left_out).map(([k, x]) => `${k === "TIPS" ? "inflation-protected" : "floating-rate"} ${(x / 1e9).toFixed(0)}bn`).join(", ");
+    g1.append(more("How this is computed", el("p", { class: "note", text: `Cash flows of each security discounted on the Fed's published zero-coupon curve; each shock and each past day's curve move is a full repricing, run by a C++ kernel (${fb.benchmark.cpp_ms ?? "n/a"} ms for ${num(fb.benchmark.cash_flows)} cash flows × ${num(fb.benchmark.scenarios)} days, against ${fb.benchmark.numpy_ms} ms in NumPy; results identical). Left out: ${lo} of face value. Ten-day VaR ${bn(fb.ten_day.var99).replace("+", "")}. The Fed does not mark its holdings to market or manage them against VaR; this shows what the standard measures say about a real, published portfolio.` })));
+    fedRows.push(grid(f1));
+  }
+  if (!r.trades) {
+    const [c, b] = card("Your own trades", "The same measures for the swaps you save on the Saved trades screen.", "c12");
+    b.append(el("p", {}, "Nothing saved yet. ", el("a", { href: "#price", text: "Price a trade" }), " and save it to see its regulatory shocks, value at risk and backtest here."));
+    page("Book risk", "Regulatory rate shocks, value at risk and its backtest, on real data.", ...fedRows, grid(c));
+    return;
+  }
+  const ir = r.irrbb, v = r.var;
+  const kp = el("div", { class: "kpis" },
+    kpi(term("Gain per basis point rise", "perbp"), money(r.dv01, true), `${r.trades} swaps, curve of ${nice(r.day)}`),
+    v ? kpi("1-day VaR, 99%", money(v.one_day.var99), `loss not exceeded on 99 of 100 days since ${nice(v.from).replace(/^\d+ /, "")}`) : null,
+    v ? kpi("Expected shortfall, 97.5%", money(v.one_day.es975), "average loss on the worst 2.5% of days") : null,
+    kpi("Worst regulatory shock", money(ir.worst.delta_eve, true), ir.worst.scenario.toLowerCase()));
+
+  const [c1, b1] = card("The six regulatory rate shocks", el("span", {}, `Change in the book's value when the curve moves by Basel's prescribed shocks for US dollars (parallel ${ir.sizes_bp.parallel} bp, short ${ir.sizes_bp.short} bp, long ${ir.sizes_bp.long} bp). Every trade is fully repriced.`), "c7");
+  bars(b1, { cats: ir.rows.map((x) => x.scenario.replace("rates ", "")), series: [{ name: "Change in value", values: ir.rows.map((x) => x.delta_eve) }], bySign: false, catColors: ir.rows.map((x) => (x.delta_eve < 0 ? cv("--crit") : cv("--good"))), yfmt: (x) => money(x), valueLabels: true, h: 260 });
+  b1.append(more("Shock at each maturity, in basis points", table([{ h: "Scenario", wrap: 1, f: (x) => x.scenario }, ...["1y", "2y", "5y", "10y", "30y"].map((t) => ({ h: t, n: 1, lo: t === "1y" || t === "5y", f: (x) => lvl(x.shift_bp[t], 0) })), { h: "Change in value", n: 1, f: (x) => money(x.delta_eve, true) }], ir.rows, { scroll: false }),
+    el("p", { class: "note", text: "Shocks apply to zero rates; after the shock no rate falls below −150 bp at zero maturity, rising 3 bp a year to 0% at 50 years. Sizes from the EBA's supervisory outlier test standard (from BCBS 368, 2016); Basel's 2024 recalibration is not yet applied." })));
+  const [c2, b2] = card("Supervisory outlier test", "A bank whose worst shock loses more than 15% of its Tier 1 capital is an outlier and faces supervisory action.", "c5 tight");
+  const capital = el("input", { type: "number", id: "tier1", min: 0, step: "any", value: tier, placeholder: "e.g. 500", style: "width:120px" });
+  capital.addEventListener("change", () => { state.tier1 = Number(capital.value) || ""; bookrisk(); });
+  b2.append(el("div", { class: "filters" }, el("label", { for: "tier1" }, "Tier 1 capital, $m", capital)),
+    ir.tier1 ? headline(`${ir.worst_share_of_tier1_pct.toFixed(1)}%`, `of Tier 1 lost in the worst shock (${ir.worst.scenario.toLowerCase()})`, chip(ir.outlier ? "outlier" : "within the 15% limit", ir.outlier ? "crit" : "good"))
+      : el("p", { class: "note", text: "Enter capital to run the test." }));
+
+  const rows = [kp, grid(c1, c2)];
+  if (v) {
+    const [c3, b3] = card("Value at risk from six years of real curve moves", `The book's gain per basis point at each curve point, applied to every daily move in the published swap curve from ${nice(v.from)} to ${nice(v.to)} (${num(v.days)} days).`, "c7");
+    const mids = v.histogram.map((_, i) => (v.edges[i] + v.edges[i + 1]) / 2);
+    bars(b3, { cats: mids.map((m) => money(m)), series: [{ name: "Days", values: v.histogram }], catColors: mids.map((m) => (m < -v.one_day.var99 ? cv("--crit") : cv("--muted"))), yfmt: (x) => x.toFixed(0), h: 240 });
+    b3.append(el("p", { class: "note", text: `Red bars are days worse than the 1-day VaR. Ten-day VaR ${money(v.ten_day.var99)}, expected shortfall ${money(v.ten_day.es975)}. A first-order (delta) measure covering ${v.share_of_dv01_covered_pct}% of the book's risk by curve point; the shocks above are full repricings.` }));
+    const bt = v.backtest;
+    const [c4, b4] = card("Is the VaR right? The backtest", "Each day VaR is set from the previous 250 days only, then compared with that day's result. Basel's traffic light counts the misses over the last 250 days.", "c5 tight");
+    b4.append(headline(`${bt.exceptions} of ${bt.days}`, `days lost more than VaR; about ${bt.expected} expected`, chip(bt.zone, bt.zone === "green" ? "good" : bt.zone === "yellow" ? "warn" : "crit")),
+      el("p", { class: "note", text: "Green is 0 to 4 misses, yellow 5 to 9, red 10 or more: the zones banks use for their market risk models." }));
+    rows.push(grid(c3, c4));
+  }
+  const [c5, b5] = card("Where the book's risk sits", "Gain or loss if the rate at one point on the curve rises by a basis point.", "c12");
+  bars(b5, { cats: r.by_point.map((x) => yrs(x.length)), series: [{ name: "Per basis point", values: r.by_point.map((x) => x.dv01) }], bySign: true, yfmt: (x) => money(x), h: 200 });
+  rows.push(grid(c5));
+  if (r.options_skipped) rows.push(el("p", { class: "note", text: `${r.options_skipped} saved swap option${r.options_skipped > 1 ? "s are" : " is"} not included: this screen covers swaps.` }));
+  rows.unshift(el("h2", { class: "section", text: "Your own trades" }));
+  page("Book risk", "Regulatory rate shocks, value at risk and its backtest, on real data.", ...fedRows, ...rows);
+}
+
+// ================================================================ Daily brief (printable)
+async function brief_() {
+  const [o, s, r, fb] = await Promise.all([q("/api/overview"), api("/api/scorecard"), api("/api/book-risk").catch(() => null), api("/api/fed-book").catch(() => null)]);
+  const sw = s.swaps.overall;
+  const head = el("div", { class: "brief-head" }, el("div", {}, el("div", { class: "eyebrow", text: "Tapemark · daily rates brief" }), el("h2", { text: `US dollar swaps, ${nice(o.day)}` })),
+    el("button", { class: "btn noprint", type: "button", text: "Download as PDF", onclick: () => window.print() }));
+  const rates = el("div", { class: "kpis" }, o.key_rates.map((k) => kpi(`${k.length.replace("y", "-year")} swap`, pct(k.rate), delta(k.change_bp))));
+  const [c1, b1] = card("The day", null, "c12"); b1.append(brief(o));
+  const [c2, b2] = card("Model record", null, "c6");
+  b2.append(el("div", { class: "kv" }, [["Typical miss against the next real trade", `${sw.filter.median_bp.toFixed(2)} bp`], ["Last trade of the same length", `${sw.last.median_bp.toFixed(2)} bp`],
+    ["Trades inside the normal range", `${(s.swaps.coverage.calibrated * 100).toFixed(1)}% (target 90%)`], ["Trades tested out of sample", num(sw.filter.n)]].flatMap(([a, b]) => [el("span", { text: a }), el("span", { text: b })])));
+  const [c3, b3] = card("Your book", null, "c6");
+  if (r && r.trades) b3.append(el("div", { class: "kv" }, [["Swaps", r.trades], ["Gain per bp rise", money(r.dv01, true)], ["1-day VaR, 99%", r.var ? money(r.var.one_day.var99) : "n/a"],
+    ["Worst regulatory shock", `${money(r.irrbb.worst.delta_eve, true)} (${r.irrbb.worst.scenario.toLowerCase()})`], ["VaR backtest", r.var ? `${r.var.backtest.zone} (${r.var.backtest.exceptions} misses in ${r.var.backtest.days} days)` : "n/a"]].flatMap(([a, b]) => [el("span", { text: a }), el("span", { text: String(b) })])));
+  else if (fb && !fb.error) {
+    b3.append(el("p", { class: "note", text: `No saved trades. The Federal Reserve's Treasury portfolio (${nice(fb.holdings_day)}):` }),
+      el("div", { class: "kv" }, [["Value", `$${(fb.value / 1e12).toFixed(2)}tn`], ["Duration", `${fb.duration_years.toFixed(1)} years`], ["1-day VaR, 99%", `$${(fb.one_day.var99 / 1e9).toFixed(1)}bn`],
+        ["Worst regulatory shock", `−$${(Math.abs(fb.irrbb.worst.delta_eve) / 1e9).toFixed(0)}bn (${fb.irrbb.worst.scenario.toLowerCase()})`], ["VaR backtest", `${fb.backtest.zone} (${fb.backtest.exceptions} in ${fb.backtest.days} days)`]].flatMap(([k, v]) => [el("span", { text: k }), el("span", { text: v })])));
+  } else b3.append(el("p", { class: "note", text: "No saved trades." }));
+  const foot = el("p", { class: "note", text: `Built from public trade reports and published curves as of ${nice(o.day)}. Generated ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC. Not investment advice.` });
+  page("Daily brief", "One page with the latest data, ready to print or save as PDF.", el("section", { class: "printable" }, head, rates, grid(c1), grid(c2, c3), foot));
 }
 
 // ================================================================ Guide
@@ -847,8 +921,8 @@ async function guide() {
 }
 
 // ================================================================ shell
-const routes = { overview, guide, today, trades, vol, markets, patterns, price, lab, saved, accuracy, data };
-const TITLES = { overview: "Overview", guide: "Guide and glossary", today: "Market · Today", trades: "Market · Trades", vol: "Market · Volatility", markets: "Market · Other markets", patterns: "Market · Patterns", price: "Tools · Price a trade", lab: "Tools · Model lab", saved: "Tools · Saved trades", accuracy: "Proof · Accuracy", data: "Proof · Data quality" };
+const routes = { overview, guide, today, trades, vol, markets, patterns, price, lab, saved, risk: bookrisk, brief: brief_, accuracy, data };
+const TITLES = { overview: "Overview", guide: "Guide and glossary", today: "Market · Today", trades: "Market · Trades", vol: "Market · Volatility", markets: "Market · Other markets", patterns: "Market · Patterns", price: "Tools · Price a trade", lab: "Tools · Model lab", saved: "Tools · Saved trades", risk: "Tools · Book risk", brief: "Tools · Daily brief", accuracy: "Proof · Accuracy", data: "Proof · Data quality" };
 async function route() {
   hideTip();
   const name = routes[(location.hash || "#overview").slice(1)] ? (location.hash || "#overview").slice(1) : "overview";

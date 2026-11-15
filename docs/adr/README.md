@@ -27,3 +27,4 @@ One file per decision. A decision is never edited after it is accepted; it is su
 | 21 | [The futures engine and the margin rule are checked against what the exchange publishes](0021-the-futures-engine-and-margin-rule-are-fitted-to-what-the-exchange-publishes.md) | Accepted |
 | 22 | [Every card leads with one number, and the screens are checked by machine](0022-every-card-leads-with-one-number-and-the-screens-are-checked-by-machine.md) | Accepted |
 | 23 | [The short end steps on Fed meeting dates, and is kept beside the smooth curve](0023-the-short-end-steps-on-fed-meeting-dates-and-is-kept-beside-the-smooth-curve.md) | Accepted |
+| 24 | [Risk frameworks run on real books, and a C++ kernel does the repricing](0024-risk-frameworks-run-on-real-books-and-a-cpp-kernel-does-the-repricing.md) | Accepted |

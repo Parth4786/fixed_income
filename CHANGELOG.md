@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follo
 ## [Unreleased]
 
 ### Added
+- Book risk screen (`treasury.py`): the six supervisory interest rate shocks of the Basel IRRBB standard as specified in the EBA's supervisory outlier test (sizes, maturity decay, steepener/flattener weights, post-shock floor), with full repricing; the 15%-of-Tier-1 outlier test; historical VaR and expected shortfall from six years of published curves; a 250-day VaR backtest with Basel's traffic-light zones.
+- A real book: the Federal Reserve's Treasury holdings, security by security (New York Fed, weekly), priced on the Fed's fitted zero-coupon Treasury curve: $3.78tn, duration 5.4 years, worst shock parallel up (−$361bn), 1-day VaR $27.7bn, backtest green.
+- C++ revaluation kernel (`cpp/revalue.cpp`, loaded through ctypes by `tapemark.fast`, built by `tools/build_cpp.py` and in CI): identical to the NumPy reference, about 2.6-3x faster on full-repricing VaR.
+- Daily brief screen: one page of the latest numbers, saved as PDF from the browser.
+- The "Add three example trades" button is removed: every position in the app is one the user entered, and every other number comes from published data.
 - Steps on Fed meeting dates (`models/meeting_curve.py`, ADR 23): the first two years of the curve rebuilt as an overnight rate that changes only after scheduled meetings, keeping every curve point. Scored beside the smooth curve on forward swaps maturing within two years: under a year 1.10 → 1.07 bp (t 3.1); one to two years, no reliable difference. Shown as a model row on Price a trade and as "What the market prices for each Fed meeting" on Today.
 - Inflation two ways (Other markets): inflation swap rates from public trades against TIPS breakevens from the Federal Reserve's fitted curve (`fed.breakevens`), same day and maturity, put on the same compounding. The gap averaged +9.2 bp at 10 years over 435 days.
 

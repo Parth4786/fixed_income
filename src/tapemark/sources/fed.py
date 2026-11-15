@@ -83,3 +83,40 @@ def breakevens() -> pd.DataFrame:
     out = df[cols].apply(pd.to_numeric, errors="coerce").dropna(how="all")
     out.columns = [int(c[6:]) for c in cols]
     return (np.exp(out / 100) - 1) * 100
+
+
+SOMA_LATEST = "https://markets.newyorkfed.org/api/soma/asofdates/latest.json"
+SOMA_TSY = "https://markets.newyorkfed.org/api/soma/tsy/get/asof/{day}.json"
+
+
+def fetch_soma() -> pd.DataFrame:
+    """The Federal Reserve's Treasury holdings, security by security, as of the latest weekly date (New York Fed)."""
+    DIR.mkdir(parents=True, exist_ok=True)
+    day = requests.get(SOMA_LATEST, headers=HEADERS, timeout=60).json()["soma"]["asOfDates"][0]
+    resp = requests.get(SOMA_TSY.format(day=day), headers=HEADERS, timeout=120)
+    resp.raise_for_status()
+    if not resp.json()["soma"]["holdings"]:
+        raise RuntimeError(f"no holdings published for {day}")
+    (DIR / "soma_tsy.json").write_bytes(resp.content)
+    return soma()
+
+
+def soma() -> pd.DataFrame:
+    import json
+
+    rows = json.loads((DIR / "soma_tsy.json").read_text(encoding="utf-8"))["soma"]["holdings"]
+    df = pd.DataFrame(rows)
+    df["asOfDate"] = pd.to_datetime(df["asOfDate"])
+    df["maturityDate"] = pd.to_datetime(df["maturityDate"])
+    for c in ("parValue", "coupon", "percentOutstanding"):
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    return df
+
+
+def treasury_zero_curve() -> pd.DataFrame:
+    """Zero-coupon Treasury yields, continuously compounded, in percent, at 1 to 30 years (Gurkaynak, Sack and Wright)."""
+    text = (DIR / "feds200628.csv").read_text(encoding="utf-8", errors="replace")
+    df = pd.read_csv(io.StringIO(text[text.index("Date,"):]), parse_dates=["Date"]).set_index("Date")
+    z = df[[f"SVENY{k:02d}" for k in range(1, 31)]].apply(pd.to_numeric, errors="coerce").dropna()
+    z.columns = list(range(1, 31))
+    return z

@@ -94,6 +94,8 @@ The interactive API reference is at <http://127.0.0.1:8765/docs>.
 | Price a trade | A swap or swap option priced under every model at once, with each model's proven accuracy; verdict, dollar cost, risk, hedge, scenarios; margin and its funding cost as a swap against swap futures |
 | Model lab | Change the curve model's settings and rerun it on recent real trades, against the published settings and the baseline |
 | Saved trades | Trades you saved, repriced on the latest day |
+| Book risk | Basel/EBA rate shocks, outlier test, VaR, expected shortfall and backtest for your saved swaps, and for the Fed's real Treasury portfolio |
+| Daily brief | One page of the latest numbers, saved as PDF with the browser's print dialog |
 | Accuracy | Out-of-sample accuracy against baselines, band honesty, sensitivity to settings, worst days, hedge test, the futures engine against the exchange, the margin rule against published margins |
 | Data quality | Why each trade was excluded, month-by-month consistency, quiet days with notes |
 
@@ -202,6 +204,8 @@ pytest -q
 The same two run on every push. A second workflow runs the pipeline on the
 last ten days of real files every weekday and fails if too few clean trades
 come through.
+
+**C++ kernel (optional).** `python tools/build_cpp.py` compiles `cpp/revalue.cpp` with g++ (MinGW-w64 on Windows). Without it the same numbers come from NumPy, more slowly.
 
 **Screens.** With the app running, this opens all twelve screens in a real
 browser at desktop width, at phone width and in the dark theme (39 renders).

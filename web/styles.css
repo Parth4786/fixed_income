@@ -306,3 +306,15 @@ td .chip{margin-left:8px}
 /* Laptop widths: tables tighten a little so paired cards keep their columns. */
 @media (max-width:1360px){table{font-size:12.5px}th,td{padding:8px 6px}.wrapcell{min-width:120px}.gapbar{width:64px}}
 @media (max-width:640px){.wrapcell{min-width:84px}}
+/* Daily brief: one page on screen and on paper. Printing hides everything but the brief. */
+.brief-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.brief-head h2{font-size:22px;margin:4px 0 0}
+.printable{display:grid;gap:16px}
+@media print{
+  .side,.top,.pagehead,.noprint,#tip{display:none!important}
+  .shell{display:block} main{padding:0}
+  body{background:#fff;color:#000} .card,.kpi{box-shadow:none;border-color:#ccc;break-inside:avoid}
+  @page{size:A4;margin:12mm}
+}
+h2.section{font-size:18px;font-weight:650;margin:8px 0 -4px}
+@media (max-width:640px){td .row-actions{flex-direction:column;align-items:stretch}}

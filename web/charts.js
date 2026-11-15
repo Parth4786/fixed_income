@@ -192,7 +192,10 @@ export const bars = (parent, o) => mount(parent, (host, W) => drawBars(host, o, 
 function drawBars(host, { cats, series, yfmt = (v) => v.toFixed(1), h = 220, stacked = false, bySign = false, valueLabels = false, catColors }, W) {
   host.replaceChildren();
   if (series.length > 1) host.append(legend(series.map((x) => ({ ...x, box: true }))));
-  const L = 50, R = 10, T = 14;
+  const T = 14, R = 10;
+  // Room on the left for the longest axis label, so values like "+$500.0bn" stay inside the card.
+  const allVals = series.flatMap((x) => x.values).filter((v) => v != null);
+  const L = Math.max(50, 10 + 6.4 * Math.max(...[Math.min(...allVals, 0), Math.max(...allVals, 0)].map((v) => yfmt(v).length)));
   // Category names wrap onto as many lines as they need, so every bar keeps its name.
   const perLine = Math.max(1, Math.floor(((W - L - R) / cats.length - 4) / 5.9));
   const wrapped = cats.map((c) => {
@@ -247,7 +250,7 @@ function drawBars(host, { cats, series, yfmt = (v) => v.toFixed(1), h = 220, sta
         const v = x.values[i]; if (v == null) return;
         const color = catColors ? catColors[i] : bySign ? (v >= 0 ? cv("--pos") : cv("--neg")) : x.color;
         bar(left + k * (w + 2), Y(0), Y(v), w, color, c, rows);
-        if (valueLabels) txt(svg, left + k * (w + 2) + w / 2, v >= 0 ? Y(v) - 4 : Y(v) + 12, yfmt(v), { "text-anchor": "middle", class: "lab" });
+        if (valueLabels && yfmt(v).length * 6.2 < band - 2) txt(svg, left + k * (w + 2) + w / 2, v >= 0 ? Y(v) - 4 : Y(v) + 12, yfmt(v), { "text-anchor": "middle", class: "lab" });
       });
     }
   });

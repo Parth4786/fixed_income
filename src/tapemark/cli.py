@@ -172,14 +172,14 @@ def cmd_score(args) -> None:
     steps = [("swap curve filter, walk-forward", swaps.score_spot), ("forward-starting swaps, held out", swaps.score_forwards), ("swap summary", swaps.summarise),
              ("option volatilities", options.implied_vols), ("option predictions, walk-forward", options.score), ("option summary", options.summarise),
              ("hedge test on real trades", risk.hedge_test), ("risk summary", risk.summarise), ("other currencies and inflation", markets.build),
-             ("Treasury curve", fed.fetch_treasury_curve), ("TIPS breakevens", fed.fetch_breakevens), ("SOFR history", fed.fetch_sofr), ("validation pack", validation.run), ("patterns in the data", insights.run),
+             ("Treasury curve", fed.fetch_treasury_curve), ("TIPS breakevens", fed.fetch_breakevens), ("Fed Treasury holdings", fed.fetch_soma), ("SOFR history", fed.fetch_sofr), ("validation pack", validation.run), ("patterns in the data", insights.run),
              ("order flow: clustering, signed flow, late-day drift", flow.run), ("swap futures against the exchange", futures.run)]
     for name, fn in steps:
         print(f"... {name}", flush=True)
         try:
             fn()
         except Exception as exc:
-            if name in ("Treasury curve", "TIPS breakevens", "SOFR history", "swap futures against the exchange"):  # optional outside sources
+            if name in ("Treasury curve", "TIPS breakevens", "Fed Treasury holdings", "SOFR history", "swap futures against the exchange"):  # optional outside sources
                 print(f"    skipped: {exc!r}"[:160])
             else:
                 raise

@@ -29,6 +29,7 @@ Out of sample, 7 Feb 2025 to 13 Nov 2026, on real US dollar SOFR swap trades.
 | Do trades trigger more trades? | About a quarter to a third of trading is a reaction to earlier trades. The apparent jump on data-release mornings (0.56) is an artefact: once the release itself is treated as news it is 0.23, no higher than other days |
 | Does modelling Fed meetings help? | A short end that steps on meeting dates cuts the miss on forward swaps under a year from 1.10 to 1.07 bp (reliable, t 3.1) and makes no difference beyond a year: most of the remaining error is in the curve points, not their shape |
 | What do inflation markets say? | Inflation swaps price about 9 bp more inflation than TIPS breakevens at 10 years (435 days, same-day comparison): the usual liquidity gap, shown on Other markets |
+| Can it measure bank interest rate risk the way regulators ask? | Yes, on a real published book: the Fed's $3.78tn Treasury portfolio under the six Basel/EBA shocks (worst −$361bn) with full-repricing VaR ($27.7bn, 1 day, 99%) backtested green, run by a C++ kernel that matches NumPy exactly |
 | Where does it lose? | Swap options: the last similar trade (4.0 bp of volatility) beats the fitted surface (11.1) and a Hull-White rate model (16.0). Short forward-starting swaps are a weak spot (1.1 bp) |
 
 The full report is written to `data/reports/model_validation.md` by `tapemark score`.
@@ -101,7 +102,8 @@ src/tapemark/
   validation.py  the validation pack
   server/     web service: read models, pricing, saved items, live feed
 web/          the frontend: plain HTML, CSS and JavaScript, no build step
-tests/        89 tests: rules, pricing identities, QuantLib, risk, swap futures, the clustering estimator, the web service
+cpp/          the C++ revaluation kernel (python tools/build_cpp.py)
+tests/        96 tests: rules, pricing identities, QuantLib, risk, swap futures, the clustering estimator, the web service
 tools/        render_screens.py: every screen in a real browser at three settings, layout and accessibility checked
 docs/         architecture, design, models, method, validation, decisions
 ```

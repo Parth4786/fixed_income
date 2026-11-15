@@ -10,3 +10,6 @@ notes/
 
 # Local assistant skills (third-party, not part of the project)
 .claude/skills/
+
+# Compiled C++ kernel (python tools/build_cpp.py)
+cpp/build/

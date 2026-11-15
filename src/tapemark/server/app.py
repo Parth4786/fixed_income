@@ -142,7 +142,7 @@ async def lifespan(app: FastAPI):
     app.state.store = Store()
     app.state.live = Live(app.state.store)
     # Build the two slow results once in the background, so the first visit to those screens does not wait for them.
-    threading.Thread(target=lambda: (app.state.store.quality(), app.state.store.lab({})), daemon=True).start()
+    threading.Thread(target=lambda: (app.state.store.quality(), app.state.store.lab({}), app.state.store.fed_book()), daemon=True).start()
     task = asyncio.create_task(app.state.live.poll_forever())
     yield
     task.cancel()
@@ -288,6 +288,20 @@ def _valued(row: sqlite3.Row) -> dict:
 def blotter_list():
     with closing(db()) as con:
         return [_valued(r) for r in con.execute("select * from blotter order by id desc")]
+
+
+@app.get("/api/fed-book")
+def fed_book():
+    """A real book: the Fed's Treasury portfolio, priced on the Fed's Treasury curve, under the regulatory shocks and VaR."""
+    return S().fed_book()
+
+
+@app.get("/api/book-risk")
+def book_risk(tier1: float | None = None):
+    """Interest rate risk of the saved swaps: Basel/EBA shocks, historical VaR and its backtest."""
+    with closing(db()) as con:
+        items = [dict(r) | {"terms": json.loads(r["terms"])} for r in con.execute("select * from blotter order by id")]
+    return S().book_risk(items, tier1)
 
 
 @app.post("/api/blotter", status_code=201)

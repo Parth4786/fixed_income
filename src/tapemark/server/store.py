@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from scipy.special import ndtr
 
+from tapemark import treasury
 from tapemark.clean.swaps import SWAP_RULES
 from tapemark.clean.swaptions import OPTION_RULES
 from tapemark.models import meeting_curve
@@ -23,7 +24,7 @@ from tapemark.pricing import options as opt
 from tapemark.pricing.calendar import add_business_days
 from tapemark.pricing.curve import Curve, annuity_and_float, par_rate, payer_value, shift_months, shift_years, spot_start
 from tapemark.report import unusual_days, waterfall
-from tapemark.sources import fed
+from tapemark.sources import eris, fed
 
 RESULTS = DATA / "results"
 NODE_COLS = [str(t) for t in NODES]
@@ -464,6 +465,61 @@ class Store:
                 "option_waterfall": waterfall(op, OPTION_RULES, "all dollar swap options", "usable options").replace("", None).to_dict("records"),
                 "monthly": by.fillna(0).astype({"clean": int, "options": int}).reset_index(names="month").to_dict("records"),
                 "flagged": [{"day": str(r.day.date()), "swaps": int(r.swaps), "usual": _r(r.usual, 0)} for r in flagged.itertuples()]}
+
+    def book_risk(self, items: list[dict], tier1: float | None = None) -> dict:
+        """Regulatory shocks, historical VaR and its backtest for the saved swaps, on the latest curve."""
+        d = self.days[-1]
+        x = self.state(d)
+        curve = Curve.from_par(d, NODES, x)
+        book, skipped = [], 0
+        for it in items:
+            if it["kind"] != "swap":
+                skipped += 1
+                continue
+            q = self.price_swap(it["terms"] | {"day": str(d)})
+            book.append({"label": it.get("label") or "", "effective": np.datetime64(q["start"], "D"), "maturity": np.datetime64(q["end"], "D"), "rate": q["rate"],
+                         "notional": q["notional"], "pay_fixed": q["pay_fixed"], "dv01": float(q["dv01"]), "value": float(q["value"])})
+        out = {"day": str(d), "trades": len(book), "options_skipped": skipped}
+        if not book:
+            return out
+        dv = np.zeros(len(NODES))
+        for b in book:
+            dv += risk.bucket_dv01_ad(d, NODES, x, b["effective"], b["maturity"], b["rate"], b["notional"]) * (1 if b["pay_fixed"] else -1)
+        out["dv01"] = float(dv.sum())
+        out["by_point"] = [{"length": float(t), "dv01": float(v)} for t, v in zip(NODES, dv, strict=True) if abs(v) > 1]
+        out["value"] = float(sum(b["value"] for b in book))
+        out["irrbb"] = treasury.supervisory_shocks(curve, book, "USD", tier1)
+        hist = self._history_for_var()
+        if hist is not None:
+            cols, values, first, last = hist
+            idx = [list(NODES).index(c) for c in cols]
+            p1, p10 = treasury.pnl_history(dv[idx], values, 1), treasury.pnl_history(dv[idx], values, 10)
+            out["var"] = {"from": first, "to": last, "days": int(len(p1)), "one_day": treasury.var_es(p1), "ten_day": treasury.var_es(p10), "backtest": treasury.backtest(p1),
+                          "share_of_dv01_covered_pct": round(100 * float(np.abs(dv[idx]).sum() / max(np.abs(dv).sum(), 1e-9)), 1),
+                          "histogram": np.histogram(p1, bins=24)[0].tolist(), "edges": np.histogram(p1, bins=24)[1].round(0).tolist()}
+        return out
+
+    def fed_book(self) -> dict | None:
+        """The Federal Reserve's Treasury holdings under the supervisory shocks and historical VaR (computed once, then kept)."""
+        if getattr(self, "_fed_book", None) is None:
+            try:
+                self._fed_book = treasury.soma_risk(fed.soma(), fed.treasury_zero_curve())
+            except Exception as exc:  # noqa: BLE001 - optional data
+                self._fed_book = {"error": str(exc)[:160]}
+        return self._fed_book
+
+    def _history_for_var(self):
+        """Six years of daily published par curves at the model's points (the outside provider's history file)."""
+        if getattr(self, "_var_hist", None) is None:
+            try:
+                h = eris.par_history()
+            except Exception:  # noqa: BLE001 - optional file
+                self._var_hist = False
+                return None
+            cols = [t for t in NODES if float(t) in [float(c) for c in h.columns]]
+            sel = h[[c for c in h.columns if float(c) in [float(t) for t in cols]]]
+            self._var_hist = (cols, sel.values, str(sel.index[0].date()), str(sel.index[-1].date()))
+        return self._var_hist or None
 
     def _inflation_basis(self) -> dict | None:
         """Inflation swap rate minus TIPS breakeven, same day and maturity, in basis points.
